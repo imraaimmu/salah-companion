@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.dart_tool/
+build/
+.idea/
+*.iml
+local.properties
