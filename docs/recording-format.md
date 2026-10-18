@@ -1,0 +1,66 @@
+# Recording and label format
+
+Test recordings and their labels are two NDJSON files per prayer: UTF-8 text, one JSON object per line, LF or CRLF line endings. The codec and validator live in `packages/salah_core/lib/src/recording.dart`; see also docs/SPEC.md, "Test data".
+
+**Recordings contain landmark numbers only, never images or video.** No field may hold pixels, thumbnails, audio or anything that identifies a person beyond the pose landmarks themselves.
+
+## Recording: `<name>.recording.ndjson`
+
+Line 1 is the header. Every other line is one frame.
+
+```
+{"format":"salah-recording","version":1,"engine":"mediapipe-pose-landmarker","model":"lite","fps":15,"orientation":"portrait","side":"left","device":"Pixel 6a","imageW":480,"imageH":640}
+{"t":0,"people":[[[212.4,88.1,-0.12,0.98], ... 33 landmarks ...]]}
+{"t":67,"people":[[[212.9,88.3,-0.11,0.97], ... ]],"tilt":0.5}
+{"t":100,"people":[]}
+```
+
+Header fields (all required):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `format` | string | Always `"salah-recording"` |
+| `version` | int | Always `1` |
+| `engine`, `model` | string | Pose engine and model, non-empty |
+| `fps` | int | Camera frame rate, at least 1 |
+| `orientation` | string | `"portrait"` or `"landscape"` |
+| `side` | string | Body side facing the camera: `"left"` or `"right"` |
+| `device` | string | Phone model |
+| `imageW`, `imageH` | int | Upright frame size in pixels, at least 1 |
+
+Frame fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `t` | int | Milliseconds since session start, at least 0, never decreasing. Two frames that both have people must not share a `t`; a frame with `people: []` (for example a heartbeat in the same millisecond as a camera frame) may share its `t` with its neighbours |
+| `people` | array | Each person is exactly 33 landmarks in BlazePose order. `[]` means nobody was detected, or a heartbeat |
+| `tilt` | number | Optional, default 0. Phone roll in degrees relative to session start |
+
+A landmark is `[x, y, z, conf]`: x and y in pixels of the upright, unmirrored frame, z relative to the hips, conf in 0..1. All numbers must be finite. Unknown extra fields are ignored.
+
+## Labels: `<name>.labels.ndjson`
+
+Line 1 is the header. Every other line is either an interval or a takbir event.
+
+Labels are **ground truth**: where the person really is in the prayer, switching at the
+middle of each movement, without the state machine's hold delays. Frames in the middle of
+a posture change may be labelled `unknown`. A `takbir` event marks only the **opening**
+takbir (takbirat al-ihram), at the moment the hands come back down. Hand raises at ruku or
+in qunut are not takbir events.
+
+```
+{"format":"salah-labels","version":1,"recording":"fajr-001.recording.ndjson"}
+{"type":"interval","startMs":0,"endMs":4200,"posture":"standing","state":"waiting","rakah":0}
+{"type":"takbir","tMs":4200}
+{"type":"interval","startMs":4200,"endMs":5100,"posture":"standing","state":"takbir","rakah":0}
+{"type":"interval","startMs":5100,"endMs":61000,"posture":"standing","state":"qiyam1","rakah":1}
+```
+
+- `recording` is the file name of the matching recording.
+- Intervals are half-open, `[startMs, endMs)`, with `0 <= startMs < endMs`. They are sorted and do not overlap; touching (`endMs` equal to the next `startMs`) is fine, and gaps mean "not labelled".
+- `posture` is one of `standing`, `bowing`, `prostrating`, `sitting`, `unknown`.
+- `state` is a `PrayerState` name: `waiting`, `takbir`, `qiyam1`, `ruku1`, `itidal1`, `sujood1`, `qiyam2`, `ruku2`, `itidal2`, `sujood2`, `finalSitting`, `done`.
+- `rakah` is 0, 1 or 2. Rak'ah 0 is only for `waiting` or `takbir` before the prayer, or `done`. States ending in 1 need rakah 1; states ending in 2 and `finalSitting` need rakah 2. `done` may have any rakah (0, 1 or 2), because an abandoned session can end in `done` at any point.
+- A takbir event marks the moment a takbir hand raise completes. `tMs` is an int, at least 0, and takbir times are strictly increasing.
+
+The encoder writes intervals and takbir events in time order (a takbir at the same time as an interval start comes first), so encode → decode → encode is byte-exact.

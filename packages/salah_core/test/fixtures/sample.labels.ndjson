@@ -1,0 +1,6 @@
+{"format":"salah-labels","version":1,"recording":"sample.recording.ndjson"}
+{"type":"interval","startMs":0,"endMs":50,"posture":"standing","state":"waiting","rakah":0}
+{"type":"takbir","tMs":50}
+{"type":"interval","startMs":50,"endMs":90,"posture":"standing","state":"takbir","rakah":0}
+{"type":"interval","startMs":90,"endMs":120,"posture":"standing","state":"qiyam1","rakah":1}
+{"type":"interval","startMs":120,"endMs":200,"posture":"bowing","state":"ruku1","rakah":1}
