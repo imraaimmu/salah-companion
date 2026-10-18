@@ -1,0 +1,21 @@
+name: Feature idea
+description: Suggest an improvement
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+  - type: checkboxes
+    id: promises
+    attributes:
+      label: Project promises
+      options:
+        - label: This idea needs no internet, no data collection, no video recording and no payment of any kind.
+          required: true

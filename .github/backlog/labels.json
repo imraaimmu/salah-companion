@@ -1,0 +1,17 @@
+[
+  {"name": "W0-setup", "color": "6e7781", "description": "Project scaffold and tooling"},
+  {"name": "W1-pose", "color": "0969da", "description": "Pose engine and camera"},
+  {"name": "W2-data", "color": "1f883d", "description": "Recorder, test data and labelling"},
+  {"name": "W3-classifier", "color": "8250df", "description": "Posture classifier and smoother"},
+  {"name": "W4-state-machine", "color": "bf3989", "description": "Prayer state machine and session control"},
+  {"name": "W5-audio", "color": "bc4c00", "description": "Recitation playback and content"},
+  {"name": "W6-ui", "color": "1b7c83", "description": "App screens"},
+  {"name": "W7-qa", "color": "cf222e", "description": "CI, field test and store compliance"},
+  {"name": "good first issue", "color": "7057ff", "description": "Small and well defined"},
+  {"name": "needs-device", "color": "fbca04", "description": "Needs a real phone to test"},
+  {"name": "religious-review", "color": "0e8a16", "description": "Needs review by someone with fiqh knowledge"},
+  {"name": "spike", "color": "d4c5f9", "description": "Time-boxed investigation ending in a written note"},
+  {"name": "privacy", "color": "b60205", "description": "Touches the privacy promises"},
+  {"name": "legal", "color": "5319e7", "description": "Licensing or trademark"},
+  {"name": "maintainer", "color": "c5def5", "description": "Non-code task for the maintainer"}
+]

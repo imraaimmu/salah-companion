@@ -1,0 +1,35 @@
+name: Bug report
+description: Something works wrong, for example audio at the wrong moment or a missed recitation
+labels: ["bug"]
+body:
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What went wrong?
+      options:
+        - Recitation played at the wrong moment
+        - Recitation did not play when I stood
+        - Rak'ah count was wrong
+        - Placement check problem
+        - App crashed or froze
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Which rak'ah and which position you were in. Please do not attach photos or videos of anyone praying.
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android/iOS version
+    validations:
+      required: true
+  - type: textarea
+    id: setup
+    attributes:
+      label: Setup
+      description: Distance from the phone, room lighting, clothing (e.g. thobe, abaya), and which side faced the camera.

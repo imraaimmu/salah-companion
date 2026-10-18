@@ -1,0 +1,20 @@
+name: Fiqh / religious content review
+description: Raise a concern about recitation, timings, surah order or wording about prayer
+labels: ["religious-review"]
+body:
+  - type: textarea
+    id: concern
+    attributes:
+      label: Concern
+      description: What in the app or spec, and why.
+    validations:
+      required: true
+  - type: input
+    id: madhhab
+    attributes:
+      label: Madhhab or scholarly view this relates to (if any)
+  - type: textarea
+    id: sources
+    attributes:
+      label: Sources
+      description: References that support the point, where available.
