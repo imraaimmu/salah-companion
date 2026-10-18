@@ -53,4 +53,47 @@ void main() {
     };
     expect(description, 'start 1');
   });
+
+  test('events compare by value', () {
+    expect(const StartRecitation(10, rakah: 1),
+        const StartRecitation(10, rakah: 1));
+    expect(
+        const StartRecitation(10, rakah: 1) ==
+            const StartRecitation(10, rakah: 2),
+        isFalse);
+    expect(const StopRecitation(5) == const TrackingLost(5), isFalse);
+    expect(
+      [
+        const StateChanged(1,
+            from: PrayerState.waiting, to: PrayerState.takbir, rakah: 1)
+      ],
+      [
+        const StateChanged(1,
+            from: PrayerState.waiting, to: PrayerState.takbir, rakah: 1)
+      ],
+    );
+  });
+
+  test('readings compare by value and copy confidence', () {
+    const a = PostureReading(tMs: 1, posture: Posture.sitting, confidence: 0.8);
+    expect(
+        a,
+        const PostureReading(
+            tMs: 1, posture: Posture.sitting, confidence: 0.8));
+    expect(a.copyWith(confidence: 0.5).confidence, 0.5);
+    expect(a.copyWith(tMs: 9).tMs, 9);
+  });
+
+  test('a frame with several people has a person but no single landmark list',
+      () {
+    final person = List.filled(LandmarkIndex.count, const Landmark(0, 0, 0, 1));
+    final frame = PoseFrame(
+        tMs: 0,
+        landmarks: null,
+        people: [person, person],
+        imageW: 480,
+        imageH: 640);
+    expect(frame.hasPerson, isTrue);
+    expect(frame.landmarks, isNull);
+  });
 }

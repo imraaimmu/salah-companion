@@ -10,9 +10,8 @@ class HomePage extends StatelessWidget {
   const HomePage({super.key});
 
   void _comingSoon(BuildContext context, String what) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text('$what is not built yet.')),
-    );
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text('$what is not built yet.')));
   }
 
   @override
@@ -59,12 +58,19 @@ class HomePage extends StatelessWidget {
                           shape: const CircleBorder(),
                           backgroundColor: AppColors.surface,
                           foregroundColor: AppColors.accent,
-                          side: const BorderSide(color: AppColors.accent, width: 1.5),
+                          side: const BorderSide(
+                            color: AppColors.accent,
+                            width: 1.5,
+                          ),
                         ),
-                        onPressed: () => _comingSoon(context, 'Prayer tracking'),
+                        onPressed: () =>
+                            _comingSoon(context, 'Prayer tracking'),
                         child: const Text(
                           'Start Fajr',
-                          style: TextStyle(fontSize: 24, fontWeight: FontWeight.w600),
+                          style: TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w600,
+                          ),
                         ),
                       ),
                     ),

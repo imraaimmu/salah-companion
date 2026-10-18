@@ -39,15 +39,34 @@ class PostureReading {
         hipHeightRatio = null,
         torsoAngleDeg = null;
 
-  PostureReading copyWith({Posture? posture, bool? takbirRaise}) =>
+  PostureReading copyWith({
+    int? tMs,
+    Posture? posture,
+    double? confidence,
+    bool? takbirRaise,
+  }) =>
       PostureReading(
-        tMs: tMs,
+        tMs: tMs ?? this.tMs,
         posture: posture ?? this.posture,
-        confidence: confidence,
+        confidence: confidence ?? this.confidence,
         takbirRaise: takbirRaise ?? this.takbirRaise,
         hipHeightRatio: hipHeightRatio,
         torsoAngleDeg: torsoAngleDeg,
       );
+
+  @override
+  bool operator ==(Object other) =>
+      other is PostureReading &&
+      other.tMs == tMs &&
+      other.posture == posture &&
+      other.confidence == confidence &&
+      other.takbirRaise == takbirRaise &&
+      other.hipHeightRatio == hipHeightRatio &&
+      other.torsoAngleDeg == torsoAngleDeg;
+
+  @override
+  int get hashCode => Object.hash(
+      tMs, posture, confidence, takbirRaise, hipHeightRatio, torsoAngleDeg);
 
   @override
   String toString() =>

@@ -51,12 +51,15 @@ class PoseFrame {
   /// The prayer logic never reads wall-clock time.
   final int tMs;
 
-  /// The selected person's 33 landmarks, or null for a heartbeat or when no
-  /// person is detected.
+  /// Convenience copy of the 33 landmarks when exactly one person is detected;
+  /// null for a heartbeat, when nobody is detected, or when several people are.
+  /// The engine never chooses between people.
   final List<Landmark>? landmarks;
 
-  /// Landmarks of every detected person (up to 3), for person selection.
-  /// Empty when the engine reports a single person in [landmarks].
+  /// Landmarks of every detected person (up to 3), in engine order. Empty for a
+  /// heartbeat. Person selection belongs to the PostureClassifier, which knows
+  /// the calibrated hip position and torso length; an unclear match is reported
+  /// as Posture.unknown.
   final List<List<Landmark>> people;
 
   final int imageW;
@@ -80,7 +83,7 @@ class PoseFrame {
         people = const [],
         tiltDeg = 0;
 
-  bool get hasPerson => landmarks != null;
+  bool get hasPerson => people.isNotEmpty || landmarks != null;
 }
 
 enum CameraLens { rear, rearUltraWide, front }

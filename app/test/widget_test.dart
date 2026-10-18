@@ -3,7 +3,9 @@ import 'package:salah_companion/main.dart';
 import 'package:flutter/material.dart';
 
 void main() {
-  testWidgets('home shows one Start Fajr button and two small icons', (tester) async {
+  testWidgets('home shows one Start Fajr button and two small icons', (
+    tester,
+  ) async {
     await tester.pumpWidget(const SalahCompanionApp());
 
     expect(find.byKey(const Key('start-fajr')), findsOneWidget);
@@ -13,7 +15,9 @@ void main() {
     expect(find.byKey(const Key('todays-surahs')), findsOneWidget);
   });
 
-  testWidgets('tapping Start Fajr does not crash before tracking exists', (tester) async {
+  testWidgets('tapping Start Fajr does not crash before tracking exists', (
+    tester,
+  ) async {
     await tester.pumpWidget(const SalahCompanionApp());
     await tester.tap(find.byKey(const Key('start-fajr')));
     await tester.pump();
