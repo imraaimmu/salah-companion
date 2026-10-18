@@ -240,7 +240,7 @@ V1 classifies postures with angle rules on the body landmarks, tuned on recorded
 
 The classifier locks the side facing the camera at the start of the session, and uses that side's landmarks. All angles are in pixel coordinates, corrected for the phone's tilt. All distances are divided by the 2D shoulder–hip length, which barely changes with posture in a side view. Per frame it computes:
 
-- **Hip height (main feature):** the gap between ankle (or foot) and hip, compared with the value calibrated during the confirmed takbir standing. It needs no knee landmarks, so it still works when loose clothing hides the knees.
+- **Hip height (main feature):** the vertical gap between the near ankle and the near hip, compared with the value calibrated during the confirmed takbir standing. It needs no knee landmarks, so it still works when loose clothing hides the knees.
 - **Torso angle:** the shoulder→hip line against vertical.
 - **Knee angle:** hip–knee–ankle, used only when knee confidence is 0.7 or more.
 - **Head drop:** how far the nose is below the hip.
@@ -287,7 +287,7 @@ The released app collects nothing. Tuning data comes only from the development t
 - Team members and consenting volunteers record their own Fajr prayers with the internal test app. It saves only landmark numbers, never video or images.
 - Labelling uses a stick-figure replay drawn from those numbers, so no camera footage is needed at any point.
 - Recordings stay on the team's own devices and code repository. Nothing is collected from people who install the store app.
-- **Format:** one NDJSON file per prayer: a header (`engine`, `model`, `fps`, `orientation`, `side`, `device`), then one line per frame (`t`, 33 × `[x, y, z, conf]` or `null`). Labels sit in a separate file of intervals (`startMs`, `endMs`, `posture`, `prayerState`, `rakah`).
+- **Format:** one NDJSON recording file per prayer (header, then one line per frame with every detected person's 33 landmarks) and a separate label file of posture/state intervals and takbir events. Full definition: [recording-format.md](recording-format.md).
 - **Synthetic generator:** committed on day 1, producing labelled sequences with noise, dropouts and timing variation, so W3 and W4 can start before real recordings exist.
 - **Conditions to cover:** loose and fitted clothing, dim pre-dawn rooms with one lamp, rooms where the phone sits 1.5 m away, left- and right-side views, men and women of different heights and builds, every school's takbir and qunut, and a child in frame.
 - These recordings become the regression set (300 or more prayers) for the classifier and the state machine.
