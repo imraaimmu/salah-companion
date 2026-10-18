@@ -177,21 +177,29 @@ Camera capture and inference run natively (CameraX on Android, AVCaptureSession 
 ### Interfaces
 
 ```dart
+// Source of truth: packages/salah_core/lib/src/. This block summarises it.
 // x, y in pixels of the upright (rotated, unmirrored) frame; z relative to hips; conf in 0..1
 class Landmark { final double x, y, z, conf; }
-class PoseFrame { final int tMs;                 // camera sensor timestamp minus session start
-                  final List<Landmark>? landmarks; // null = heartbeat or no person
-                  final int imageW, imageH; final double tiltDeg; }
+abstract final class LandmarkIndex { /* the 33 BlazePose indices: nose = 0 ... rightFootIndex = 32 */ }
+class PoseFrame { final int tMs;                    // camera sensor timestamp minus session start
+                  final List<Landmark>? landmarks;    // set only when exactly one person is detected
+                  final List<List<Landmark>> people;  // every detected person (up to 3); empty = heartbeat
+                  final int imageW, imageH; final double tiltDeg;
+                  const PoseFrame.heartbeat(int tMs); bool get hasPerson; }
+// The engine never chooses between people; PostureClassifier selects the user.
 class CameraConfig { final int width, height, fps; final CameraLens lens; } // default 480x640, 15, rear
 
 enum Posture { standing, bowing, prostrating, sitting, unknown }
 class PostureReading { final int tMs; final Posture posture; final double confidence;
-                       final bool takbirRaise; }  // hand-raise event detected before smoothing
+                       final bool takbirRaise;         // hand-raise event detected before smoothing
+                       final double? hipHeightRatio;   // 1.0 = calibrated standing
+                       final double? torsoAngleDeg;
+                       const PostureReading.unknown(int tMs); PostureReading copyWith(...); } // value equality
 
 enum PrayerState { waiting, takbir, qiyam1, ruku1, itidal1, sujood1, qiyam2, ruku2, itidal2,
                    sujood2, finalSitting, done }
 
-sealed class PrayerEvent { final int tMs; }
+sealed class PrayerEvent { final int tMs; }          // value equality
 class StateChanged extends PrayerEvent { final PrayerState from, to; final int rakah; }
 class StartRecitation extends PrayerEvent { final int rakah; }
 class StopRecitation extends PrayerEvent {}
@@ -199,16 +207,16 @@ class TrackingLost extends PrayerEvent {}
 class TrackingRestored extends PrayerEvent {}
 class SessionEnded extends PrayerEvent { final EndReason reason; } // completed, timeout, cancelled, cameraLost
 
-class AyahClip { final String assetPath; final int surah, ayah; }
+class AyahClip { final String assetPath; final int surah, ayah; final Duration duration; }
 class RecitationPlan { final List<AyahClip> clips; final Duration preRoll, gapAfterAyah, gapAfterFatiha; }
 
-abstract class PoseEngine { Stream<PoseFrame> start(CameraConfig c); Future<void> stop(); }
-abstract class PostureClassifier { PostureReading classify(PoseFrame f); }
-abstract class PostureSmoother { Stream<PostureReading> smooth(Stream<PostureReading> raw); }
-abstract class PrayerStateMachine { Stream<PrayerEvent> run(Stream<PostureReading> smoothed); }
-abstract class RecitationPlayer {
-  Future<void> play(RecitationPlan p);  // completes when playback ends or is cancelled
-  Future<void> fadeOut({Duration d = const Duration(milliseconds: 300)}); // also cancels a pending pre-roll
+abstract interface class PoseEngine { Stream<PoseFrame> start(CameraConfig config); Future<void> stop(); }
+abstract interface class PostureClassifier { PostureReading classify(PoseFrame frame); void reset(); } // reset per session
+abstract interface class PostureSmoother { Stream<PostureReading> smooth(Stream<PostureReading> raw); }
+abstract interface class PrayerStateMachine { Stream<PrayerEvent> run(Stream<PostureReading> smoothed); }
+abstract interface class RecitationPlayer {
+  Future<void> play(RecitationPlan plan);  // completes when playback ends or is cancelled
+  Future<void> fadeOut({Duration duration = const Duration(milliseconds: 300)}); // also cancels a pending pre-roll
   Future<void> stopNow();
   void dispose();
 }
