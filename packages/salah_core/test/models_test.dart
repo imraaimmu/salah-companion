@@ -46,6 +46,8 @@ void main() {
     final description = switch (event) {
       StartRecitation(:final rakah) => 'start $rakah',
       StopRecitation() => 'stop',
+      PauseRecitation(:final rakah) => 'pause $rakah',
+      ResumeRecitation(:final rakah) => 'resume $rakah',
       StateChanged() => 'state',
       TrackingLost() => 'lost',
       TrackingRestored() => 'restored',
@@ -62,6 +64,18 @@ void main() {
             const StartRecitation(10, rakah: 2),
         isFalse);
     expect(const StopRecitation(5) == const TrackingLost(5), isFalse);
+    expect(
+        const PauseRecitation(7, rakah: 2), const PauseRecitation(7, rakah: 2));
+    expect(const ResumeRecitation(7, rakah: 2),
+        const ResumeRecitation(7, rakah: 2));
+    expect(
+        const PauseRecitation(7, rakah: 2) ==
+            const ResumeRecitation(7, rakah: 2),
+        isFalse);
+    expect(
+        const ResumeRecitation(7, rakah: 1) ==
+            const ResumeRecitation(7, rakah: 2),
+        isFalse);
     expect(
       [
         const StateChanged(1,

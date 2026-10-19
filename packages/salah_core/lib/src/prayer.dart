@@ -70,7 +70,38 @@ class StartRecitation extends PrayerEvent {
   String toString() => 'StartRecitation($tMs ms, rakah $rakah)';
 }
 
-/// Fade out any recitation now (the user left standing, or tracking was lost).
+/// Pause the recitation of [rakah] now: the user cannot be seen while it
+/// plays (a blind spot). The player fades out and remembers the start of the
+/// current ayah. Followed by exactly one [ResumeRecitation] (same rak'ah) or
+/// [StopRecitation].
+class PauseRecitation extends PrayerEvent {
+  final int rakah;
+  const PauseRecitation(super.tMs, {required this.rakah});
+
+  @override
+  List<Object?> get _props => [rakah];
+
+  @override
+  String toString() => 'PauseRecitation($tMs ms, rakah $rakah)';
+}
+
+/// Resume the paused recitation of [rakah] from the start of the ayah it was
+/// paused in: the user is seen standing again. Continues the same
+/// recitation (never a restart); only ever follows a [PauseRecitation].
+class ResumeRecitation extends PrayerEvent {
+  final int rakah;
+  const ResumeRecitation(super.tMs, {required this.rakah});
+
+  @override
+  List<Object?> get _props => [rakah];
+
+  @override
+  String toString() => 'ResumeRecitation($tMs ms, rakah $rakah)';
+}
+
+/// Fade out any recitation now and end it for good (the user left standing,
+/// tracking was lost, or the Qiyam ended), also when it is paused. A stopped
+/// recitation never resumes.
 class StopRecitation extends PrayerEvent {
   const StopRecitation(super.tMs);
 

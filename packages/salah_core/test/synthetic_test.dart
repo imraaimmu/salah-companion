@@ -437,6 +437,19 @@ void main() {
   });
 
   group('perturbations', () {
+    test('batch pixelNoise override: same seeds, only the noise changes', () {
+      final base = generateSyntheticBatch(6, seed: 3, timeScale: 0.05).toList();
+      final loud =
+          generateSyntheticBatch(6, seed: 3, timeScale: 0.05, pixelNoise: 6)
+              .toList();
+      for (var i = 0; i < 6; i++) {
+        expect(loud[i].options.pixelNoise, 6);
+        expect(loud[i].name, base[i].name);
+        expect(loud[i].options.kneesHidden, base[i].options.kneesHidden);
+        expect(loud[i].options.frameSkipRate, base[i].options.frameSkipRate);
+      }
+    });
+
     test('tilt is written relative to session start; landmarks use full roll',
         () {
       final flat = generateSyntheticPrayer(SyntheticCase.normal,

@@ -240,13 +240,14 @@ class SyntheticOptions {
     );
   }
 
-  SyntheticOptions copyWith({bool? child, double? timeScale}) =>
+  SyntheticOptions copyWith(
+          {bool? child, double? timeScale, double? pixelNoise}) =>
       SyntheticOptions(
         timeScale: timeScale ?? this.timeScale,
         fps: fps,
         timingJitterMs: timingJitterMs,
         frameSkipRate: frameSkipRate,
-        pixelNoise: pixelNoise,
+        pixelNoise: pixelNoise ?? this.pixelNoise,
         confJitter: confJitter,
         landmarkDropoutRate: landmarkDropoutRate,
         frameDropoutRate: frameDropoutRate,
@@ -345,16 +346,22 @@ SyntheticPrayer generateSyntheticPrayer(
 
 /// [count] prayers cycling through every [SyntheticCase] in order, each with
 /// its own derived seed and [SyntheticOptions.random] perturbations.
+///
+/// [pixelNoise], when given, replaces every prayer's random pixel noise
+/// (normally 0.3–4 px) with that value, e.g. 6 for a stress run. The other
+/// perturbations and every seed stay the same as without it.
 Iterable<SyntheticPrayer> generateSyntheticBatch(
   int count, {
   int seed = 0,
   double timeScale = 1.0,
+  double? pixelNoise,
 }) sync* {
   final rng = math.Random(seed);
   const cases = SyntheticCase.values;
   for (var i = 0; i < count; i++) {
     final c = cases[i % cases.length];
-    final options = SyntheticOptions.random(rng, timeScale: timeScale);
+    var options = SyntheticOptions.random(rng, timeScale: timeScale);
+    if (pixelNoise != null) options = options.copyWith(pixelNoise: pixelNoise);
     final s = rng.nextInt(1 << 31);
     yield generateSyntheticPrayer(
       c,

@@ -114,25 +114,26 @@ The loop runs twice. Only standing that follows the takbir, or the first standin
 | --- | --- | --- | --- |
 | Waiting | Any | Countdown ends. Standing here, however long, triggers nothing | None |
 | Takbir | Hand raise | A takbir hand-raise event (section 6). Reachable only from Waiting | None |
-| Qiyam (rak'ah 1) | Standing | Standing held 0.8 s after Takbir | Opening-dua pause, then Al-Fatiha → Ameen gap → surah 1 |
-| Ruku | Bowing | Bowing held 0.5 s. If the takbir was missed, Ruku is entered straight from Waiting and rak'ah 1 stays silent | None (audio already stopped when the user left standing) |
+| Qiyam (rak'ah 1) | Standing | Standing held 0.8 s after Takbir, passing the hip-height check (section 6) | Opening-dua pause, then Al-Fatiha → Ameen gap → surah 1 (paused during blind spots, see the rules) |
+| Ruku | Bowing | Bowing held 0.5 s, counting only frames whose hip height is at least 0.8× standing (or unknown): rising from sujood looks like bowing with the hips still low. If the takbir was missed, Ruku is entered straight from Waiting and rak'ah 1 stays silent | None (audio already stopped when the user left standing) |
 | I'tidal | Standing | Standing after Ruku | None |
-| Sujood and Jalsa (rak'ah 1) | Prostrating, sitting | Any prostration held 0.5 s after Ruku or I'tidal | None |
-| Qiyam (rak'ah 2) | Standing | First standing held 0.8 s after any prostration in rak'ah 1, passing the hip-height check (section 6) | 1.5 s pause, then Al-Fatiha → Ameen gap → surah 2 |
+| Sujood and Jalsa (rak'ah 1) | Prostrating, sitting | Any prostration held 0.5 s after Ruku or I'tidal. Also Waiting → Sujood 1 (takbir and ruku both unseen, filled in): a prostration held 0.5 s in Waiting enters Sujood 1, with Ruku and I'tidal filled in, so the user's real rak'ah 2 is never counted as rak'ah 1 | None |
+| Qiyam (rak'ah 2) | Standing | First standing held 0.8 s after any prostration in rak'ah 1, passing the hip-height check (section 6) | 1.5 s pause, then Al-Fatiha → Ameen gap → surah 2 (paused during blind spots, see the rules) |
 | Ruku, I'tidal, Sujood and Jalsa (rak'ah 2) | As in rak'ah 1 | As in rak'ah 1 | None |
-| Final sitting | Sitting | Sitting held 5 s after any prostration in rak'ah 2 | None |
-| Done | Any | After Final sitting: the user stands up, sitting lasts over 180 s, or the user is out of frame over 10 s | None; show summary |
+| Final sitting | Sitting | Sitting held 5 s after any prostration in rak'ah 2. Unknown or unseen readings totalling 1 s or less do not reset the hold; any other posture (standing, bowing, prostrating) does | None |
+| Done | Any | After Final sitting: the user stands up (standing held 0.8 s, passing the hip-height check), sitting lasts over 180 s, or the user is out of frame over 10 s | None; show summary |
 
 ### Rules the state machine follows
 
-- **Anchors, not a strict chain.** States only move forward, but they advance on postures that can't be mistaken. A prostration closes the standing part of a rak'ah, and the first confirmed standing after a prostration in rak'ah 1 is Qiyam 2 (in Fajr, standing after a prostration happens only then). A missed ruku, i'tidal or jalsa is filled in, so one missed posture never leaves the machine stuck.
+- **Anchors, not a strict chain.** States only move forward, but they advance on postures that can't be mistaken. A prostration closes the standing part of a rak'ah, and the first confirmed standing after a prostration in rak'ah 1 is Qiyam 2 (in Fajr, standing after a prostration happens only then). A missed ruku, i'tidal or jalsa is filled in, so one missed posture never leaves the machine stuck; a prostration seen while still in Waiting (takbir and ruku both unseen) enters Sujood 1 with Ruku and I'tidal filled in.
 - **Takbir only once.** Takbir is reachable only from Waiting. Raised hands later (at ruku, or in qunut in either position) are ignored.
-- **Never repeat.** Each recitation plays at most once per rak'ah.
-- **Stop early.** While reciting, `StopRecitation` fires as soon as the user leaves standing (torso over 35° from vertical, or hip height below 0.8× standing, for 0.2 s). Confirming Ruku still takes 0.5 s, but only for sequencing.
+- **Never repeat.** Each recitation plays at most once per rak'ah. A resume after a blind-spot pause continues the same recitation from the start of the ayah it was paused in; it never restarts it.
+- **Stop early.** While reciting, `StopRecitation` fires as soon as the user leaves standing (torso over 35° from vertical, or hip height below 0.8× standing, for 0.2 s). Time with no body data counts toward the 0.2 s when the last frame before it already showed the user leaving standing. Confirming Ruku still takes 0.5 s, but only for sequencing.
+- **Pause in blind spots.** If no body data arrives for more than 0.6 s while a recitation plays (frames dropped, or the user hidden), `PauseRecitation` fires: the audio fades out, because the user may be bowing unseen. A resume is allowed only if the whole blind span, from the last body data before the pause to the first body data after it, is 1.5 s or less: even a fast ruku (bowing down, one tasbih, rising) takes about 2 s, so after a longer span the standing seen may be the i'tidal, and the first body data fires `StopRecitation` instead. Within that limit, confident standing for 0.2 s fires `ResumeRecitation`: torso 35° or less, smoothed posture standing at confidence 0.5 or more and, once the hip height has been calibrated, a known hip height of 0.8× or more (torso-only or low-confidence data can stop a recitation but never resume one). Leaving standing for 0.2 s, the machine leaving Qiyam, lost tracking, or staying paused for more than 2 s without body data fires `StopRecitation`. A stop is final: there is never a resume after `StopRecitation` (so never after lost tracking), every resume follows its own pause, and a resume only ever happens in that rak'ah's Qiyam. If one reading would cause both a resume and a stop, only the stop is emitted; events are applied to the player strictly in order.
 - **Ignored postures.** Sitting while Qiyam 2 is expected (a brief sitting before standing) and prostrations after Final sitting (sujood al-sahw) change nothing.
-- **Lost tracking.** If the body leaves the frame or confidence drops for more than 2 s, the machine freezes and any audio fades out. It resumes when tracking returns, but never starts audio while frozen.
+- **Lost tracking.** If the body leaves the frame or confidence drops for more than 2 s, the machine freezes and any recitation, playing or paused, stops for good (`StopRecitation`, then `TrackingLost`). The machine continues when tracking returns, but never starts or resumes audio while frozen, and a recitation stopped this way never resumes. Shorter gaps are blind spots (above).
 - **Timeouts.** No state lasts more than 180 s (Waiting: 10 minutes). After that the session ends quietly.
-- **Clock.** Time comes only from camera frame timestamps plus a 100 ms heartbeat, never wall-clock time, so replays are deterministic and timeouts still fire when no person is detected.
+- **Clock.** Time comes only from camera frame timestamps plus a 100 ms heartbeat (section 5), never wall-clock time, so replays are deterministic and timeouts still fire when the camera stalls.
 - **Pure logic.** The state machine is plain Dart with no camera or audio code, so it can be fully tested with recorded and synthetic sequences.
 - **Required replay cases:** standing 30 s before takbir (iqamah), a missed takbir, Shafi'i qunut, Maliki qunut, raised hands at ruku, a brief sitting before rak'ah 2, a hurried jalsa, a missed ruku, a long tashahhud, sujood al-sahw before and after salam, and a child standing in frame.
 
@@ -183,9 +184,10 @@ class Landmark { final double x, y, z, conf; }
 abstract final class LandmarkIndex { /* the 33 BlazePose indices: nose = 0 ... rightFootIndex = 32 */ }
 class PoseFrame { final int tMs;                    // camera sensor timestamp minus session start
                   final List<Landmark>? landmarks;    // set only when exactly one person is detected
-                  final List<List<Landmark>> people;  // every detected person (up to 3); empty = heartbeat
+                  final List<List<Landmark>> people;  // every detected person (up to 3); empty = no person detected
                   final int imageW, imageH; final double tiltDeg;
-                  const PoseFrame.heartbeat(int tMs); bool get hasPerson; }
+                  const PoseFrame.heartbeat(int tMs);  // landmarks null, people empty; see the heartbeat rule below
+                  bool get hasPerson; }
 // The engine never chooses between people; PostureClassifier selects the user.
 class CameraConfig { final int width, height, fps; final CameraLens lens; } // default 480x640, 15, rear
 
@@ -202,7 +204,9 @@ enum PrayerState { waiting, takbir, qiyam1, ruku1, itidal1, sujood1, qiyam2, ruk
 sealed class PrayerEvent { final int tMs; }          // value equality
 class StateChanged extends PrayerEvent { final PrayerState from, to; final int rakah; }
 class StartRecitation extends PrayerEvent { final int rakah; }
-class StopRecitation extends PrayerEvent {}
+class PauseRecitation extends PrayerEvent { final int rakah; }  // blind spot: fade out, keep position
+class ResumeRecitation extends PrayerEvent { final int rakah; } // only after a pause, only in Qiyam
+class StopRecitation extends PrayerEvent {}                     // final: no resume after it
 class TrackingLost extends PrayerEvent {}
 class TrackingRestored extends PrayerEvent {}
 class SessionEnded extends PrayerEvent { final EndReason reason; } // completed, timeout, cancelled, cameraLost
@@ -217,10 +221,14 @@ abstract interface class PrayerStateMachine { Stream<PrayerEvent> run(Stream<Pos
 abstract interface class RecitationPlayer {
   Future<void> play(RecitationPlan plan);  // completes when playback ends or is cancelled
   Future<void> fadeOut({Duration duration = const Duration(milliseconds: 300)}); // also cancels a pending pre-roll
+  Future<void> pause();   // 300 ms fade out; remembers the start of the current ayah
+  Future<void> resume();  // fades back in from the start of that ayah (same recitation, not a restart)
   Future<void> stopNow();
   void dispose();
 }
 ```
+
+**Heartbeat rule.** The engine emits a heartbeat only after 100 ms with no camera frame, stamped `lastFrameT + k × 100` ms on the sensor clock (k = 1, 2, … for as long as no frame arrives, always earlier than the next frame), and never interleaves heartbeats with frames: every camera frame, with or without a person, resets the heartbeat clock. A heartbeat is a separate `PoseFrame` with `landmarks` null and `people` empty. A camera frame in which nobody is detected also has `people` empty: both mean "no person", and both are classified as `unknown`. The replay harness inserts heartbeats into recordings by exactly this rule, and treats recorded frames with `people: []` as camera frames, not gaps.
 
 The data flows one way: camera → PoseEngine → PostureClassifier → PostureSmoother → PrayerStateMachine → SessionController → RecitationPlayer. The UI listens to events and never drives the prayer logic. Per-frame Dart work must stay under 1 ms, checked by a benchmark in CI.
 
@@ -244,7 +252,7 @@ The classifier locks the side facing the camera at the start of the session, and
 - **Torso angle:** the shoulder→hip line against vertical.
 - **Knee angle:** hip–knee–ankle, used only when knee confidence is 0.7 or more.
 - **Head drop:** how far the nose is below the hip.
-- **Takbir raise (an event, detected before smoothing):** the near wrist rises from below the elbow to at least 70% of the way from hip to shoulder, then comes down, all within 2 s. This covers raising to the ears, to the shoulders or to the chest, in every school and for women.
+- **Takbir raise (an event, detected before smoothing):** wrist height is measured along the torso, 0 at the hip and 1 at the shoulder, and averaged over the last 3 frames. The near wrist starts below the elbow; then, within 2 s, its averaged height reaches 0.65 or more for at least 2 frames and comes back down by 0.17 or more from its peak, to below 0.65. The raise must also stand out from where the hands rested: its averaged peak must be at least 0.35 above the lowest averaged height since the wrist was last below the elbow, and its highest single-frame height at least 0.68. The user must be upright throughout (torso under 30°, hip height 0.7× standing or more). This covers raising to the ears, to the shoulders or to the chest, in every school and for women, while hands folded on the chest, which rest at about 0.6, do not fire from landmark noise.
 - **Confidence:** the average confidence of the landmarks used. Below 0.5 means `unknown`.
 - **Person selection:** MediaPipe detects up to 3 people. The app follows the user by hip position and torso length (within 20% of calibration), and treats an unclear match as lost tracking.
 
@@ -256,6 +264,8 @@ The classifier locks the side facing the camera at the start of the session, and
 | Bowing (ruku) | 0.6 or more | 55° to 100° | Head roughly level with hips |
 | Prostrating (sujood) | under 0.6 | any | Nose below hip by 0.4× torso length or more |
 | Sitting (jalsa, tashahhud) | 0.35 or less | under 35° |  |
+
+**Hip-height check.** Every standing hold in the state machine (Qiyam 1, Qiyam 2, and standing up from the final sitting) counts a smoothed `standing` reading only if its raw values do not show the user has left standing: torso 35° or less from vertical and hip height 0.8× standing or more. A reading that fails restarts the hold. A missing value is accepted, because the classifier never reports standing without a hip height and the hip ratio is unknown until calibration (for example after a missed takbir). Resuming a paused recitation is stricter (section 4): once calibration exists the hip height must be known. Bowing that confirms Ruku is checked the same way: it counts only with hip height 0.8× or more, or unknown.
 
 Hip height separates the postures, and torso angle confirms them. This matters most for standing versus sitting: both have an upright torso, and mixing them up is the one error that could start the rak'ah 2 recitation during jalsa. Far-side landmarks are used only for hip height, and only at confidence 0.7 or more, because pose models often swap left and right for the hidden side.
 
@@ -269,7 +279,7 @@ Hip height separates the postures, and torso angle confirms them. This matters m
 
 | Measure | Target | Measured on |
 | --- | --- | --- |
-| Wrong-time audio: any recitation starting, or still playing, outside Qiyam 1 or 2 | 0 events | Replay of 300 or more labelled prayers plus 500 or more synthetic perturbed sequences; and 0 in the field test |
+| Wrong-time audio: any recitation starting, resuming, or still playing (not paused), outside Qiyam 1 or 2 | 0 events | Replay of 300 or more labelled prayers plus 500 or more synthetic perturbed sequences; and 0 in the field test |
 | Missed Qiyam: no recitation when the user stood after a detected takbir or prostration | 4 or fewer in 200 or more rak'ahs | Field test |
 | Takbir confirmed to Al-Fatiha start (rak'ah 1) | Opening-dua pause ± 0.3 s | Replay |
 | Steady standing to Al-Fatiha start (rak'ah 2) | 1.5 s pause + 1.0 s or less, 90th percentile | Replay |
@@ -344,10 +354,10 @@ When the app is unsure, it stays silent. Missing a recitation is acceptable; pla
 | User stands on the mat before takbir (iqamah, intention) | Nothing; only a takbir hand raise starts rak'ah 1 |
 | Takbir not seen | Rak'ah 1 stays silent; counting continues from the first ruku |
 | Someone else in frame (a child copying the prayer) | Follow the user by hip position and torso length; if unclear, treat as lost tracking and stay silent |
-| User partly or fully leaves the frame | Freeze after 2 s and fade out any audio; resume when tracking returns; never start audio while frozen |
+| User partly or fully leaves the frame | No body data for more than 0.6 s while reciting: pause (fade out). Seen again within 1 s of the last body data and standing confidently for 0.2 s: resume from the start of the paused ayah. Unseen for longer than 1 s: stop for good when seen again. Seen leaving standing, or Ruku confirmed: stop for good. Lost for more than 2 s: freeze and stop for good (no resume, also when tracking returns); never start or resume audio while frozen |
 | User leaves the frame during the final sitting for over 10 s | Done |
 | Room too dark, or camera below 15 fps | Placement check fails with "Turn on a light" |
-| Room gets darker, or the phone overheats, mid-prayer | Below 10 fps for 5 s counts as lost tracking |
+| Room gets darker, or the phone overheats, mid-prayer | Below 10 fps for 5 s counts as lost tracking. This rule is owned by SessionController (#15) and is not implemented yet; the state machine only sees the frames and heartbeats it is given |
 | Phone falls or tilts more than 5° | Lost tracking; not recovered within 30 s → end quietly with "Prayer tracking stopped" |
 | Bluetooth audio | Warning at setup about delay; Bluetooth included in latency testing |
 | Headphones unplugged or Bluetooth drops mid-recitation | Stop audio; never switch to the speaker |

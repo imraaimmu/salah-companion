@@ -56,10 +56,11 @@ class PoseFrame {
   /// The engine never chooses between people.
   final List<Landmark>? landmarks;
 
-  /// Landmarks of every detected person (up to 3), in engine order. Empty for a
-  /// heartbeat. Person selection belongs to the PostureClassifier, which knows
-  /// the calibrated hip position and torso length; an unclear match is reported
-  /// as Posture.unknown.
+  /// Landmarks of every detected person (up to 3), in engine order. Empty
+  /// means no person: a camera frame in which nobody was detected, or a
+  /// heartbeat (which never has a person). Person selection belongs to the
+  /// PostureClassifier, which knows the calibrated hip position and torso
+  /// length; an unclear match is reported as Posture.unknown.
   final List<List<Landmark>> people;
 
   final int imageW;
@@ -77,7 +78,16 @@ class PoseFrame {
     this.tiltDeg = 0,
   });
 
-  /// A frame with no person, used as a 100 ms heartbeat so timeouts still fire.
+  /// A heartbeat: a frame with no person (`landmarks` null, `people` empty)
+  /// that keeps the sensor clock moving so timeouts still fire when the
+  /// camera stalls (docs/SPEC.md section 5).
+  ///
+  /// The engine emits a heartbeat only after 100 ms with no camera frame,
+  /// stamped `lastFrameT + k * 100` on the sensor clock (k = 1, 2, ...) for
+  /// as long as no frame arrives, and never interleaved with frames: a
+  /// camera frame (with or without a person) resets the heartbeat clock, and
+  /// no heartbeat is stamped at or after the next frame's time. The replay
+  /// harness inserts heartbeats by exactly this rule.
   const PoseFrame.heartbeat(this.tMs, {this.imageW = 0, this.imageH = 0})
       : landmarks = null,
         people = const [],

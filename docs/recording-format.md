@@ -32,8 +32,8 @@ Frame fields:
 
 | Field | Type | Notes |
 | --- | --- | --- |
-| `t` | int | Milliseconds since session start, at least 0, never decreasing. Two frames that both have people must not share a `t`; a frame with `people: []` (for example a heartbeat in the same millisecond as a camera frame) may share its `t` with its neighbours |
-| `people` | array | Each person is exactly 33 landmarks in BlazePose order. `[]` means nobody was detected, or a heartbeat |
+| `t` | int | Milliseconds since session start, at least 0, never decreasing. Two frames that both have people must not share a `t`; a frame with `people: []` may share its `t` with its neighbours (the engine's heartbeats never do: they are stamped strictly between camera frames, see the heartbeat rule in docs/SPEC.md section 5) |
+| `people` | array | Each person is exactly 33 landmarks in BlazePose order. `[]` means no person: a camera frame in which nobody was detected, or a heartbeat written into the recording. The replay harness feeds both as frames (an `unknown` reading); it inserts any missing heartbeats itself by the heartbeat rule |
 | `tilt` | number | Optional, default 0. Phone roll in degrees relative to session start |
 
 A landmark is `[x, y, z, conf]`: x and y in pixels of the upright, unmirrored frame, z relative to the hips, conf in 0..1. All numbers must be finite. Unknown extra fields are ignored.
