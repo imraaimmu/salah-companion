@@ -7,8 +7,16 @@
 ///                                                 # clean and perturbed
 ///     dart run bin/replay.dart --batch N [--seed S]
 ///                                                 # generateSyntheticBatch
-///     common: [--time-scale X] [--grace MS] [--pixel-noise PX] [--strict]
-///             [--verbose]
+///     common: [--prayer fajr|dhuhr|asr|maghrib|isha|all] [--time-scale X]
+///             [--grace MS] [--pixel-noise PX] [--strict] [--verbose]
+///
+/// `--prayer` (synthetic modes; default fajr) picks the prayer to generate.
+/// With `all`, the matrix runs every case that applies to each prayer, and
+/// the batch cycles through the five prayers (prayer i is the (i mod 5)-th,
+/// each cycling through its own cases). Group rows are named
+/// `<prayer> <case> ...`, and a TOTAL row follows for every prayer, then the
+/// overall TOTAL. Recordings read from a directory are replayed as the
+/// prayer their labels name.
 ///
 /// `--pixel-noise PX` (synthetic modes) replaces the random pixel noise of
 /// every perturbed prayer with PX pixels (a stress run; clean matrix prayers
@@ -24,12 +32,14 @@
 /// qiyam; reported, not gating); blind-spot pauses and resumes, and
 /// `resumeBad`, resumes outside qiyam (wrong-time); missed qiyam (share of
 /// eligible rak'ahs); prayers
-/// whose final sitting was wrongly reached or not; rak'ah-1 starts during
+/// whose rak'ah count went wrong (`rakWrong`: final sitting wrongly reached
+/// or not, or the machine in another rak'ah at the end of a labelled
+/// sujood); rak'ah-1 starts during
 /// the labelled takbir standing (`r1 early`, not wrong-time, see
 /// lib/src/replay.dart; --strict scores them as wrong-time); label qiyam
-/// start -> StartRecitation for rak'ah 1 and 2 (ms, p50/p90) and the rak'ah-1
+/// start -> StartRecitation for rak'ah 1 to 4 (ms, p50/p90) and the rak'ah-1
 /// starts more than 0.3 s off; `r2std` from the first standing-labelled
-/// frame of qiyam2; label leaving qiyam -> silence (the final pause or
+/// frame of qiyam 2; label leaving qiyam -> silence (the final pause or
 /// stop); `cutShort`, recitations stopped for good over 1 s before the label
 /// left qiyam.
 ///
@@ -44,8 +54,9 @@ import 'dart:math' as math;
 import 'package:salah_core/salah_core.dart';
 
 const _usage = 'usage: dart run bin/replay.dart (<dir> | --matrix N '
-    '[--seed S] | --batch N [--seed S]) [--time-scale X] [--grace MS] '
-    '[--pixel-noise PX] [--strict] [--verbose]';
+    '[--seed S] | --batch N [--seed S]) '
+    '[--prayer fajr|dhuhr|asr|maghrib|isha|all] [--time-scale X] '
+    '[--grace MS] [--pixel-noise PX] [--strict] [--verbose]';
 
 void main(List<String> args) {
   String? dir;
@@ -57,6 +68,7 @@ void main(List<String> args) {
   var grace = defaultGraceMs;
   var verbose = false;
   var strict = false;
+  List<Prayer>? prayers;
   try {
     for (var i = 0; i < args.length; i++) {
       final a = args[i];
@@ -72,6 +84,15 @@ void main(List<String> args) {
           batch = int.parse(next());
         case '--seed':
           seed = int.parse(next());
+        case '--prayer':
+          final v = next();
+          prayers = v == 'all'
+              ? Prayer.values
+              : [
+                  Prayer.values.firstWhere((p) => p.name == v,
+                      orElse: () =>
+                          throw FormatException('unknown prayer "$v"'))
+                ];
         case '--time-scale':
           timeScale = double.parse(next());
         case '--grace':
@@ -106,6 +127,9 @@ void main(List<String> args) {
     if (seed != null && dir != null) {
       throw const FormatException('--seed needs --matrix or --batch');
     }
+    if (prayers != null && dir != null) {
+      throw const FormatException('--prayer needs --matrix or --batch');
+    }
   } on Object catch (e) {
     stderr.writeln(e is FormatException ? e.message : '$e');
     stderr.writeln(_usage);
@@ -114,6 +138,7 @@ void main(List<String> args) {
   }
 
   final options = ReplayOptions(graceMs: grace, strict: strict);
+  final ps = prayers ?? const [Prayer.fajr];
   final groups = <String, List<ReplayResult>>{};
   void add(String group, ReplayResult r) => (groups[group] ??= []).add(r);
 
@@ -136,40 +161,57 @@ void main(List<String> args) {
       final rec = decodeRecording(f.readAsStringSync());
       final labels = decodeLabels(lf.readAsStringSync());
       final name = base.split(Platform.pathSeparator).last;
-      add(name, replay(rec, labels, name: name, options: options));
+      add('${labels.prayer.name} $name',
+          replay(rec, labels, name: name, options: options));
     }
   } else if (matrix != null) {
     final offset = seed ?? 0;
-    for (final c in SyntheticCase.values) {
-      for (var s = offset + 1; s <= offset + matrix; s++) {
-        final clean = generateSyntheticPrayer(c,
-            seed: s, options: SyntheticOptions.clean(timeScale: timeScale));
-        add(
-            '${c.name} clean',
-            replay(clean.recording, clean.labels,
-                name: clean.name, options: options));
-        final rng = math.Random(s * 1009 + c.index);
-        var opts = SyntheticOptions.random(rng, timeScale: timeScale);
-        if (pixelNoise != null) opts = opts.copyWith(pixelNoise: pixelNoise);
-        final noisy = generateSyntheticPrayer(c,
-            seed: s, options: opts, name: 'synthetic-${c.name}-s$s-perturbed');
-        add(
-            '${c.name} perturbed',
-            replay(noisy.recording, noisy.labels,
-                name: noisy.name, options: options));
+    for (final prayer in ps) {
+      for (final c in SyntheticCase.forPrayer(prayer)) {
+        for (var s = offset + 1; s <= offset + matrix; s++) {
+          final clean = generateSyntheticPrayer(c,
+              seed: s,
+              prayer: prayer,
+              options: SyntheticOptions.clean(timeScale: timeScale));
+          add(
+              '${prayer.name} ${c.name} clean',
+              replay(clean.recording, clean.labels,
+                  name: clean.name, options: options));
+          final rng = math.Random(s * 1009 + c.index);
+          var opts = SyntheticOptions.random(rng, timeScale: timeScale);
+          if (pixelNoise != null) opts = opts.copyWith(pixelNoise: pixelNoise);
+          final noisy = generateSyntheticPrayer(c,
+              seed: s,
+              prayer: prayer,
+              options: opts,
+              name: 'synthetic-${prayer.name}-${c.name}-s$s-perturbed');
+          add(
+              '${prayer.name} ${c.name} perturbed',
+              replay(noisy.recording, noisy.labels,
+                  name: noisy.name, options: options));
+        }
       }
     }
   } else {
     for (final p in generateSyntheticBatch(batch!,
-        seed: seed ?? 7777, timeScale: timeScale, pixelNoise: pixelNoise)) {
-      add(p.scenario.name,
+        seed: seed ?? 7777,
+        timeScale: timeScale,
+        pixelNoise: pixelNoise,
+        prayers: ps)) {
+      add('${p.prayer.name} ${p.scenario.name}',
           replay(p.recording, p.labels, name: p.name, options: options));
     }
   }
   sw.stop();
 
+  // Groups sorted by prayer (in Prayer order), keeping insertion order
+  // within a prayer.
+  final byPrayer = <Prayer, Map<String, List<ReplayResult>>>{
+    for (final p in Prayer.values) p: {},
+  };
+  groups.forEach((k, v) => byPrayer[v.first.prayer]![k] = v);
   final all = [for (final g in groups.values) ...g];
-  stdout.writeln(_table(groups, ReplaySummary(all)));
+  stdout.writeln(_table(byPrayer, ReplaySummary(all)));
   stdout.writeln('${all.length} prayers in ${sw.elapsedMilliseconds} ms');
 
   final summary = ReplaySummary(all);
@@ -185,7 +227,8 @@ void main(List<String> args) {
   }
 }
 
-String _table(Map<String, List<ReplayResult>> groups, ReplaySummary total) {
+String _table(Map<Prayer, Map<String, List<ReplayResult>>> byPrayer,
+    ReplaySummary total) {
   const head = [
     'group',
     'n',
@@ -203,6 +246,8 @@ String _table(Map<String, List<ReplayResult>> groups, ReplaySummary total) {
     'r1 p50/p90',
     'r1 off>0.3s',
     'r2 p50/p90',
+    'r3 p50/p90',
+    'r4 p50/p90',
     'r2std p50/p90',
     'stop p50/p90',
     'cutShort',
@@ -225,15 +270,30 @@ String _table(Map<String, List<ReplayResult>> groups, ReplaySummary total) {
         '${ms(s.startP(1, 50))}/${ms(s.startP(1, 90))}',
         '${s.rakah1OffTarget()}',
         '${ms(s.startP(2, 50))}/${ms(s.startP(2, 90))}',
+        '${ms(s.startP(3, 50))}/${ms(s.startP(3, 90))}',
+        '${ms(s.startP(4, 50))}/${ms(s.startP(4, 90))}',
         '${ms(s.startStdP(2, 50))}/${ms(s.startStdP(2, 90))}',
         '${ms(s.stopP(50))}/${ms(s.stopP(90))}',
         '${s.prematureStops}',
       ];
-  final rows = [
-    head,
-    for (final e in groups.entries) row(e.key, ReplaySummary(e.value)),
-    if (groups.length > 1) row('TOTAL', total),
+  final used = [
+    for (final e in byPrayer.entries)
+      if (e.value.isNotEmpty) e,
   ];
+  final separators = <int>{1};
+  final rows = [head];
+  for (final e in used) {
+    for (final g in e.value.entries) {
+      rows.add(row(g.key, ReplaySummary(g.value)));
+    }
+    if (e.value.length > 1) {
+      separators.add(rows.length);
+      rows.add(row('${e.key.name.toUpperCase()} TOTAL',
+          ReplaySummary([for (final g in e.value.values) ...g])));
+    }
+    separators.add(rows.length);
+  }
+  if (used.length > 1) rows.add(row('TOTAL', total));
   final widths = [
     for (var c = 0; c < head.length; c++)
       rows.map((r) => r[c].length).reduce(math.max),
@@ -245,7 +305,7 @@ String _table(Map<String, List<ReplayResult>> groups, ReplaySummary total) {
       for (var c = 0; c < r.length; c++)
         c == 0 ? r[c].padRight(widths[c]) : r[c].padLeft(widths[c]),
     ].join('  '));
-    if (i == 0 || (i == rows.length - 2 && groups.length > 1)) {
+    if (separators.contains(i + 1) && i + 1 < rows.length) {
       buf.writeln(widths.map((w) => '-' * w).join('  '));
     }
   }
