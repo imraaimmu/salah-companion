@@ -107,6 +107,10 @@ void main() {
     expect(s.allPass, isTrue);
   });
 
+  test('even a user close to the phone passes with 0.2 x height in front', () {
+    expect(feed(ev(), person()).floorSpaceOk, isTrue);
+  });
+
   test('no floor in front: user near the front edge fails', () {
     final s = feed(ev(), person(dx: 150));
     expect(s.floorSpaceOk, isFalse);

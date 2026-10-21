@@ -30,20 +30,17 @@ import 'seams.dart';
 ///   exactly 15 fps that drops or jitters by one frame in the 3 s window
 ///   still passes (44 frames needed in 3 s instead of 45).
 /// * **floorSpaceOk** (heuristic): while the classifier reads the user as
-///   standing, the frame must show at least [floorFactor] (0.6) x the
+///   standing, the frame must show at least [floorFactor] (0.2) x the
 ///   user's height in landmarks (highest head point to lowest foot point) of
-///   floor in front of the toes, in the direction the user faces. What must
-///   stay in view in sujood is the head and shoulders (the classifier needs
-///   the nose below the hips); fingertips may leave the frame. Measured on
-///   the synthetic body model the nose lands 0.64-0.76 x that height ahead
-///   of the toes, so 0.6 keeps the head in view for most bodies without
-///   forcing the user to the very edge of a portrait frame. If sujood does
-///   go out of view the prayer logic only stays silent (a missed
-///   recitation, never a wrong one), so the check favours being easy to
-///   pass. The facing direction comes from the nose and ear (clear in a
-///   side view), falling back to heel -> toe, voted over the last
-///   [facingVotes] frames so one noisy foot point cannot flip it. The space
-///   result is the best of the last second of standing frames.
+///   floor in front of the toes, in the direction the user faces. The
+///   maintainer chose 0.2 so the check is easy to pass. In a full sujood the
+///   head lands about 0.65-0.75 x height ahead of the toes, so with only 0.2
+///   it may leave the frame; then sujood can go unseen and the prayer logic
+///   stays silent for that rak'ah (a missed recitation, never a wrong one).
+///   The facing direction comes from the nose and ear (clear in a side
+///   view), falling back to heel -> toe, voted over the last [facingVotes]
+///   frames so one noisy foot point cannot flip it. The space result is the
+///   best of the last second of standing frames.
 class PlacementEvaluator {
   final double minPointConf;
   final double minMeanConf;
@@ -67,7 +64,7 @@ class PlacementEvaluator {
     this.minMeanConf = 0.7,
     this.holdMs = 3000,
     this.minFps = 14.5,
-    this.floorFactor = 0.6,
+    this.floorFactor = 0.2,
     this.facingVotes = 15,
     this.heartbeatMs = defaultHeartbeatMs,
     PostureClassifier? classifier,

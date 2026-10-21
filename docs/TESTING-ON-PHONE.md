@@ -57,7 +57,7 @@ Tap the Start button. The placement screen shows the chosen prayer at the top ("
 | Whole body in view | Head and near-side shoulder, hip, knee and ankle are inside the picture |
 | Shoulder, hip, knee and ankle clear | Their average confidence is 0.7 or more for 3 s |
 | Enough light | The camera delivers about 15 frames per second for 3 s (14.5 accepted) |
-| Space for sujood | While you stand, the picture shows at least 0.6 x your height of floor in front of your toes (enough to keep your head in view in sujood). Standing near the middle of the picture at 2-3 m is usually enough |
+| Space for sujood | While you stand, the picture shows at least 0.2 x your height of floor in front of your toes. If recitation in rak'ah 2 or later is often missed, your head may be leaving the picture in sujood: step back a little |
 
 The line above the checks says what to fix ("Move the phone back", "Step back a little so sujood fits in view", "Turn on a light", "Hold still"). **The prompts are text only in this
 build, not spoken**, so you will need to glance at the screen, or have someone read it to
