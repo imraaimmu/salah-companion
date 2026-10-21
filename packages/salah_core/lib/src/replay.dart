@@ -1,6 +1,7 @@
 /// End-to-end replay harness: a labelled recording is run frame by frame
-/// through [RuleBasedClassifier] -> [MajoritySmoother] -> [FajrStateMachine]
-/// and the emitted events are scored against the ground-truth labels. See
+/// through [RuleBasedClassifier] -> [MajoritySmoother] -> [SalahStateMachine]
+/// (for the labels' [LabelSet.prayer]) and the emitted events are scored
+/// against the ground-truth labels, for any of the five prayers. See
 /// docs/SPEC.md, section "Pose detection and classification" -> "Accuracy
 /// targets", and docs/recording-format.md (labels are ground truth).
 ///
@@ -23,10 +24,12 @@
 ///
 /// ## Scoring
 ///
-/// *Qiyam runs* are the maximal runs of touching label intervals with the
-/// same state `qiyam1` or `qiyam2` (posture is ignored: an `unknown` or
-/// qunut frame inside a qiyam is still qiyam). Time not covered by any qiyam
-/// run, including unlabelled gaps, is *outside qiyam*.
+/// *Qiyam runs* are the maximal runs of touching label intervals with state
+/// `qiyam` and the same rak'ah (posture is ignored: an `unknown` or qunut
+/// frame inside a qiyam is still qiyam). `qiyam{r}` below means a qiyam run
+/// of rak'ah r. Time not covered by any qiyam run, including unlabelled
+/// gaps, is *outside qiyam*. Every rule is the same for every rak'ah and
+/// every prayer.
 ///
 /// * **Wrong-time start:** a `StartRecitation(r)` whose `tMs` is not inside
 ///   a `qiyam{r}` run, except an *early start*: a `StartRecitation(1)` while
@@ -85,8 +88,14 @@
 ///   (final, no resume possible) comes more than [ReplayOptions.cutShortMs]
 ///   (1 s) before the label leaves qiyam is counted as a *premature stop* (audio
 ///   cut short while the user was still in qiyam, not wrong-time).
-/// * **Rak'ah count:** the machine reached `finalSitting` (and so rak'ah 2)
-///   exactly when the labels contain `finalSitting`.
+/// * **Rak'ah count:** the machine reached `finalSitting` (and so rak'ah N)
+///   exactly when the labels contain `finalSitting`, and at the end of every
+///   labelled `sujood` run of rak'ah r the machine's rak'ah (from its last
+///   [StateChanged]) is r, unless the machine was frozen (lost tracking)
+///   then; each exception is in [ReplayResult.rakahMismatches]. A silent
+///   rak'ah (e.g. rak'ah 3 after an unseen middle sitting) still counts
+///   right. Which rak'ahs recite a surah is the planner's job and is not
+///   scored here.
 library;
 
 import 'classifier.dart';
@@ -149,11 +158,26 @@ class WrongStart {
   /// The labelled state at [tMs], null when unlabelled.
   final PrayerState? labelState;
 
-  const WrongStart(this.tMs, this.rakah, this.labelState);
+  /// The labelled rak'ah at [tMs], null when unlabelled.
+  final int? labelRakah;
+
+  const WrongStart(this.tMs, this.rakah, this.labelState, [this.labelRakah]);
 
   @override
-  String toString() =>
-      'WrongStart(rakah $rakah at $tMs ms, label ${labelState?.name})';
+  String toString() => 'WrongStart(rakah $rakah at $tMs ms, label '
+      '${labelState?.name}${labelRakah == null ? '' : ' $labelRakah'})';
+}
+
+/// The machine's rak'ah disagreeing with the labels at the end of a
+/// labelled sujood run.
+class RakahMismatch {
+  final int tMs;
+  final int labelRakah;
+  final int machineRakah;
+  const RakahMismatch(this.tMs, this.labelRakah, this.machineRakah);
+
+  @override
+  String toString() => 'rakah $machineRakah at $tMs ms, label $labelRakah';
 }
 
 /// A recitation still playing outside qiyam beyond the grace.
@@ -197,6 +221,9 @@ class QiyamRun {
 class ReplayResult {
   final String name;
 
+  /// The prayer replayed (the labels' [LabelSet.prayer]).
+  final Prayer prayer;
+
   /// Every event the state machine emitted, in order.
   final List<PrayerEvent> events;
 
@@ -228,13 +255,13 @@ class ReplayResult {
   final List<QiyamRun> missed;
   final int takbirToleranceMs;
 
-  /// Label qiyam start -> StartRecitation, per rak'ah (1, 2); absent when
+  /// Label qiyam start -> StartRecitation, per rak'ah (1..N); absent when
   /// there was no start or no labelled qiyam of that rak'ah.
   final Map<int, int> startLatencyMs;
 
   /// First `standing`-labelled instant of the first `qiyam{r}` run ->
   /// StartRecitation(r), per rak'ah: the spec's "steady standing to
-  /// Al-Fatiha start" (the label switches to qiyam2 at the middle of the
+  /// Al-Fatiha start" (the label switches to qiyam at the middle of the
   /// rise, standing starts at 80 % of it).
   final Map<int, int> startFromStandingMs;
 
@@ -247,11 +274,15 @@ class ReplayResult {
 
   final bool reachedFinal;
   final bool expectedFinal;
+
+  /// Labelled sujood runs whose end found the machine in another rak'ah.
+  final List<RakahMismatch> rakahMismatches;
   final PrayerState finalState;
   final EndReason? endReason;
 
   const ReplayResult({
     required this.name,
+    this.prayer = Prayer.fajr,
     required this.events,
     required this.readings,
     required this.frames,
@@ -272,6 +303,7 @@ class ReplayResult {
     required this.prematureStops,
     required this.reachedFinal,
     required this.expectedFinal,
+    this.rakahMismatches = const [],
     required this.finalState,
     required this.endReason,
   });
@@ -284,7 +316,8 @@ class ReplayResult {
   int get worstOverrunMs =>
       overruns.fold(0, (m, o) => o.overrunMs > m ? o.overrunMs : m);
 
-  bool get rakahCountOk => reachedFinal == expectedFinal;
+  bool get rakahCountOk =>
+      reachedFinal == expectedFinal && rakahMismatches.isEmpty;
 
   /// Early rak'ah-1 starts beyond the spec's tolerance.
   int get earlyBeyondTolerance =>
@@ -298,9 +331,10 @@ class ReplayResult {
         ...missed.map((m) => 'missed $m'),
         for (final e in earlyStartsMs)
           if (e > takbirToleranceMs) 'rakah 1 started $e ms before qiyam1',
-        if (!rakahCountOk)
+        if (reachedFinal != expectedFinal)
           'final sitting ${reachedFinal ? 'reached' : 'not reached'} '
               '(state ${finalState.name}, end ${endReason?.name})',
+        ...rakahMismatches.map((m) => 'rak\'ah count off: $m'),
       ].join('; ');
 }
 
@@ -313,12 +347,12 @@ ReplayResult replay(
   String? name,
   RuleBasedClassifier? classifier,
   MajoritySmoother? smoother,
-  FajrStateMachine? machine,
+  SalahStateMachine? machine,
   ReplayOptions options = const ReplayOptions(),
 }) {
   final c = classifier ?? RuleBasedClassifier();
   final s = smoother ?? MajoritySmoother();
-  final m = machine ?? FajrStateMachine();
+  final m = machine ?? SalahStateMachine(prayer: labels.prayer);
   c.reset();
   s.reset();
   m.reset();
@@ -337,26 +371,14 @@ ReplayResult replay(
     return m.ended;
   }
 
-  int? prev;
-  for (final f in recording.frames) {
-    if (prev != null) {
-      // A heartbeat at every multiple of heartbeatMs after the previous
-      // frame that comes strictly before the next frame.
-      for (var t = prev + options.heartbeatMs;
-          t < f.tMs;
-          t += options.heartbeatMs) {
-        heartbeats++;
-        if (feed(PoseFrame.heartbeat(t,
-            imageW: recording.header.imageW,
-            imageH: recording.header.imageH))) {
-          break;
-        }
-      }
-      if (m.ended) break;
+  for (final (frame: f, heartbeat: hb)
+      in withHeartbeats(recording, heartbeatMs: options.heartbeatMs)) {
+    if (hb) {
+      heartbeats++;
+    } else {
+      frameCount++;
     }
-    frameCount++;
     if (feed(f)) break;
-    prev = f.tMs;
   }
 
   return score(labels, events,
@@ -372,16 +394,44 @@ ReplayResult replay(
       finalState: m.state);
 }
 
-/// Merges touching label intervals with the same qiyam state.
-List<QiyamRun> qiyamRuns(LabelSet labels) {
+/// The frames of [recording] in file order with heartbeats inserted exactly
+/// as the engine emits them (docs/SPEC.md section 5, [PoseFrame.heartbeat]):
+/// a heartbeat at every multiple of [heartbeatMs] after a frame that comes
+/// strictly before the next frame, stamped with the recording's image size.
+/// Nothing follows the last frame. Lazy, so a consumer may stop early.
+///
+/// `heartbeat` is true for an inserted heartbeat (a recorded frame with
+/// `people: []` is a camera frame, never flagged).
+Iterable<({PoseFrame frame, bool heartbeat})> withHeartbeats(
+    Recording recording,
+    {int heartbeatMs = defaultHeartbeatMs}) sync* {
+  if (heartbeatMs <= 0) {
+    throw ArgumentError.value(heartbeatMs, 'heartbeatMs', 'must be positive');
+  }
+  int? prev;
+  for (final f in recording.frames) {
+    if (prev != null) {
+      for (var t = prev + heartbeatMs; t < f.tMs; t += heartbeatMs) {
+        yield (
+          frame: PoseFrame.heartbeat(t,
+              imageW: recording.header.imageW, imageH: recording.header.imageH),
+          heartbeat: true,
+        );
+      }
+    }
+    yield (frame: f, heartbeat: false);
+    prev = f.tMs;
+  }
+}
+
+/// Merges touching label intervals with state qiyam and the same rak'ah.
+List<QiyamRun> qiyamRuns(LabelSet labels) => _runs(labels, PrayerState.qiyam);
+
+List<QiyamRun> _runs(LabelSet labels, PrayerState state) {
   final out = <QiyamRun>[];
   for (final iv in labels.intervals) {
-    final r = switch (iv.state) {
-      PrayerState.qiyam1 => 1,
-      PrayerState.qiyam2 => 2,
-      _ => 0,
-    };
-    if (r == 0) continue;
+    if (iv.state != state || iv.rakah == 0) continue;
+    final r = iv.rakah;
     if (out.isNotEmpty && out.last.rakah == r && out.last.endMs == iv.startMs) {
       out[out.length - 1] = QiyamRun(r, out.last.startMs, iv.endMs);
     } else {
@@ -454,7 +504,10 @@ ReplayResult score(
               next.rakah == 1 &&
               next.startMs == iv.endMs;
         }
-        if (!ok) wrongResumes.add(WrongStart(t, rakah, labels.stateAt(t)));
+        if (!ok) {
+          wrongResumes.add(WrongStart(
+              t, rakah, labels.stateAt(t), labels.intervalAt(t)?.rakah));
+        }
       case StartRecitation(:final rakah, tMs: final t):
         var run = runAt(t);
         int? earlyRunStart;
@@ -472,7 +525,8 @@ ReplayResult score(
           }
         }
         if (run == null || run.rakah != rakah) {
-          wrong.add(WrongStart(t, rakah, labels.stateAt(t)));
+          wrong.add(WrongStart(
+              t, rakah, labels.stateAt(t), labels.intervalAt(t)?.rakah));
         } else {
           matched.add(run);
         }
@@ -544,8 +598,33 @@ ReplayResult score(
   final hasTakbir = labels.takbirTimesMs.isNotEmpty;
   final eligible = [
     for (final q in runs)
-      if (q.rakah == 2 || hasTakbir) q,
+      if (q.rakah >= 2 || hasTakbir) q,
   ];
+
+  // The machine's rak'ah at the end of each labelled sujood run.
+  final mismatches = <RakahMismatch>[];
+  for (final run in _runs(labels, PrayerState.sujood)) {
+    final at = run.endMs - 1;
+    if (at > endMs) break; // not replayed that far (the session ended)
+    var machineRakah = 0;
+    var frozen = false;
+    for (final e in events) {
+      if (e.tMs > at) break;
+      switch (e) {
+        case StateChanged(:final rakah):
+          machineRakah = rakah;
+        case TrackingLost():
+          frozen = true;
+        case TrackingRestored():
+          frozen = false;
+        default:
+          break;
+      }
+    }
+    if (!frozen && machineRakah != run.rakah) {
+      mismatches.add(RakahMismatch(at, run.rakah, machineRakah));
+    }
+  }
   final missed = [
     for (final q in eligible)
       if (!matched.contains(q)) q,
@@ -553,6 +632,7 @@ ReplayResult score(
 
   return ReplayResult(
     name: name,
+    prayer: labels.prayer,
     events: List.unmodifiable(events),
     readings: List.unmodifiable(readings),
     frames: frames,
@@ -574,6 +654,7 @@ ReplayResult score(
     reachedFinal: reachedFinal,
     expectedFinal:
         labels.intervals.any((iv) => iv.state == PrayerState.finalSitting),
+    rakahMismatches: mismatches,
     finalState: finalState ?? state,
     endReason: endReason,
   );
