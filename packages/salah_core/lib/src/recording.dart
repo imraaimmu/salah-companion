@@ -13,7 +13,31 @@ import 'prayer.dart';
 const String recordingFormatName = 'salah-recording';
 const String labelsFormatName = 'salah-labels';
 const int recordingFormatVersion = 1;
-const int labelsFormatVersion = 1;
+
+/// The label format written by [encodeLabels]. Version 2 has the
+/// rak'ah-independent [PrayerState] names plus `rakah`, and a `prayer` in
+/// the header; [decodeLabels] also reads version 1 (Fajr, states `qiyam1`,
+/// `ruku2`, ...).
+const int labelsFormatVersion = 2;
+
+/// The oldest label format [decodeLabels] still reads.
+const int labelsFormatMinVersion = 1;
+
+/// Version 1 state names and the (state, rak'ah) each maps to.
+const Map<String, (PrayerState, int?)> labelsV1States = {
+  'waiting': (PrayerState.waiting, null),
+  'takbir': (PrayerState.takbir, null),
+  'qiyam1': (PrayerState.qiyam, 1),
+  'ruku1': (PrayerState.ruku, 1),
+  'itidal1': (PrayerState.itidal, 1),
+  'sujood1': (PrayerState.sujood, 1),
+  'qiyam2': (PrayerState.qiyam, 2),
+  'ruku2': (PrayerState.ruku, 2),
+  'itidal2': (PrayerState.itidal, 2),
+  'sujood2': (PrayerState.sujood, 2),
+  'finalSitting': (PrayerState.finalSitting, 2),
+  'done': (PrayerState.done, null),
+};
 
 const List<String> _orientations = ['portrait', 'landscape'];
 const List<String> _sides = ['left', 'right'];
@@ -100,7 +124,8 @@ class LabelInterval {
   final PrayerState state;
 
   /// 0 (only for waiting or takbir before the prayer, or done after an
-  /// abandoned session), 1 or 2.
+  /// abandoned session), or 1..N: the rak'ah of a qiyam, ruku, itidal or
+  /// sujood, 2 for the middle sitting, N for the final sitting.
   final int rakah;
 
   const LabelInterval({
@@ -149,10 +174,14 @@ class LabelSet {
   /// Sorted, strictly increasing.
   final List<int> takbirTimesMs;
 
+  /// The prayer the recording shows (version 1 files are always Fajr).
+  final Prayer prayer;
+
   const LabelSet({
     required this.recording,
     required this.intervals,
     this.takbirTimesMs = const [],
+    this.prayer = Prayer.fajr,
   });
 
   LabelInterval? intervalAt(int tMs) {
@@ -231,6 +260,7 @@ String encodeLabels(LabelSet labels) {
       'format': labelsFormatName,
       'version': labelsFormatVersion,
       'recording': labels.recording,
+      'prayer': labels.prayer.name,
     }));
   var ti = 0;
   final takbirs = labels.takbirTimesMs;
@@ -545,12 +575,25 @@ LabelSet? _parseLabels(String text, List<FormatError> errors) {
   }
   final before = errors.length;
   String? recording;
+  var version = labelsFormatVersion;
+  var prayer = Prayer.fajr;
   final headerJson = _object(lines[0], 1, errors);
   if (headerJson != null) {
     final f = _Fields(headerJson, 1, errors);
     if (f.expectConst('format', labelsFormatName)) {
-      f.expectConst('version', labelsFormatVersion);
+      final v = f.integer('version');
+      if (v != null &&
+          (v < labelsFormatMinVersion || v > labelsFormatVersion)) {
+        f._err('field "version" must be $labelsFormatMinVersion to '
+            '$labelsFormatVersion, got $v');
+      } else if (v != null) {
+        version = v;
+      }
       recording = f.string('recording', nonEmpty: true);
+      if (version >= 2 && headerJson.containsKey('prayer')) {
+        final name = f.oneOf('prayer', [for (final p in Prayer.values) p.name]);
+        if (name != null) prayer = Prayer.values.byName(name);
+      }
     }
   }
 
@@ -571,7 +614,7 @@ LabelSet? _parseLabels(String text, List<FormatError> errors) {
       }
       takbirs.add(t);
     } else if (type == 'interval') {
-      final iv = _parseInterval(f);
+      final iv = _parseInterval(f, version, prayer);
       if (iv == null) continue;
       if (intervals.isNotEmpty && iv.startMs < intervals.last.endMs) {
         final prev = intervals.last;
@@ -586,27 +629,55 @@ LabelSet? _parseLabels(String text, List<FormatError> errors) {
   }
   if (errors.length != before || recording == null) return null;
   return LabelSet(
-      recording: recording, intervals: intervals, takbirTimesMs: takbirs);
+      recording: recording,
+      intervals: intervals,
+      takbirTimesMs: takbirs,
+      prayer: prayer);
 }
 
-LabelInterval? _parseInterval(_Fields f) {
+LabelInterval? _parseInterval(_Fields f, int version, Prayer prayer) {
   final before = f.errors.length;
   final start = f.integer('startMs', min: 0);
   final end = f.integer('endMs', min: 0);
   final postureName =
       f.oneOf('posture', [for (final p in Posture.values) p.name]);
-  final stateName =
-      f.oneOf('state', [for (final s in PrayerState.values) s.name]);
+  final stateName = f.oneOf(
+      'state',
+      version == 1
+          ? labelsV1States.keys.toList()
+          : [for (final s in PrayerState.values) s.name]);
   final rakah = f.integer('rakah');
   if (f.errors.length != before) return null;
 
   if (start! >= end!) {
     f._err('startMs ($start) must be less than endMs ($end)');
   }
+  final n = prayer.rakahCount;
+  if (version == 1) {
+    final (state, fixed) = labelsV1States[stateName!]!;
+    if (rakah! < 0 || rakah > 2) {
+      f._err('field "rakah" must be 0, 1 or 2, got $rakah');
+    } else if (fixed != null && rakah != fixed) {
+      f._err(rakah == 0
+          ? 'rakah 0 is only allowed for waiting, takbir or done, '
+              'not $stateName'
+          : 'state $stateName must have rakah $fixed, got $rakah');
+    }
+    if (f.errors.length != before) return null;
+    return LabelInterval(
+      startMs: start,
+      endMs: end,
+      posture: Posture.values.byName(postureName!),
+      state: state,
+      rakah: rakah,
+    );
+  }
   final state = PrayerState.values.byName(stateName!);
-  final allowed = _allowedRakahs(state);
-  if (rakah! < 0 || rakah > 2) {
-    f._err('field "rakah" must be 0, 1 or 2, got $rakah');
+  final allowed = _allowedRakahs(state, n);
+  if (rakah! < 0 || rakah > n) {
+    f._err('field "rakah" must be 0 to $n for ${prayer.name}, got $rakah');
+  } else if (allowed.isEmpty) {
+    f._err('state ${state.name} does not occur in ${prayer.name}');
   } else if (!allowed.contains(rakah)) {
     f._err(rakah == 0
         ? 'rakah 0 is only allowed for waiting, takbir or done, '
@@ -624,20 +695,19 @@ LabelInterval? _parseInterval(_Fields f) {
   );
 }
 
-/// The rak'ah numbers a state may be labelled with.
-List<int> _allowedRakahs(PrayerState s) => switch (s) {
-      PrayerState.waiting || PrayerState.takbir => const [0, 1, 2],
-      PrayerState.qiyam1 ||
-      PrayerState.ruku1 ||
-      PrayerState.itidal1 ||
-      PrayerState.sujood1 =>
-        const [1],
-      PrayerState.qiyam2 ||
-      PrayerState.ruku2 ||
-      PrayerState.itidal2 ||
-      PrayerState.sujood2 ||
-      PrayerState.finalSitting =>
-        const [2],
+/// The rak'ah numbers a state may be labelled with in a prayer of [n]
+/// rak'ahs (version 2).
+List<int> _allowedRakahs(PrayerState s, int n) => switch (s) {
+      PrayerState.waiting || PrayerState.takbir => [
+          for (var r = 0; r <= n; r++) r
+        ],
+      PrayerState.qiyam ||
+      PrayerState.ruku ||
+      PrayerState.itidal ||
+      PrayerState.sujood =>
+        [for (var r = 1; r <= n; r++) r],
+      PrayerState.middleSitting => n > 2 ? const [2] : const [],
+      PrayerState.finalSitting => [n],
       // An abandoned session can end in done at any point.
-      PrayerState.done => const [0, 1, 2],
+      PrayerState.done => [for (var r = 0; r <= n; r++) r],
     };
