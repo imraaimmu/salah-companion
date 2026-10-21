@@ -148,7 +148,7 @@ def main() -> None:
         write_wav(REPO / "app" / c["path"], pcm, RATE)
 
     CATALOG.write_text(json.dumps(catalog, indent=1) + "\n")
-    write_wav(SILENCE, b"\\x00\\x00" * SILENCE_RATE * SILENCE_SECONDS, SILENCE_RATE)
+    write_wav(SILENCE, b"\x00\x00" * SILENCE_RATE * SILENCE_SECONDS, SILENCE_RATE)
 
     total = sum(f.stat().st_size for f in expected_files())
     print(f"{len(catalog['clips'])} clips (wav), silence, catalog: "
