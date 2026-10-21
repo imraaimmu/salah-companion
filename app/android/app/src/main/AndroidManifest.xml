@@ -1,7 +1,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <!-- No INTERNET permission. Debug and profile builds add it for Flutter tooling;
-         src/release/AndroidManifest.xml strips it, and CI checks the release APK. -->
+         src/release/AndroidManifest.xml strips it. The release check in app/README.md
+         verifies the release APK's permissions (CI is not set up yet). -->
+    <!-- Rear camera for pose tracking. Frames are processed in memory and dropped;
+         nothing is recorded (docs/SPEC.md section 8). Requested at runtime from Dart. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="true" />
     <application
         android:label="Salah Companion"
         android:allowBackup="false"
