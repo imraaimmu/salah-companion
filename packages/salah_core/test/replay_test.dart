@@ -7,56 +7,112 @@ import 'package:test/test.dart';
 // Scoring on hand-built labels and events
 // ---------------------------------------------------------------------------
 
-LabelInterval iv(int s, int e, PrayerState st, {Posture? p}) {
-  final rakah = switch (st) {
-    PrayerState.waiting || PrayerState.takbir => 0,
-    PrayerState.qiyam1 ||
-    PrayerState.ruku1 ||
-    PrayerState.itidal1 ||
-    PrayerState.sujood1 =>
-      1,
-    _ => 2,
-  };
+const waiting = PrayerState.waiting;
+const takbirSt = PrayerState.takbir;
+const qiyam = PrayerState.qiyam;
+const ruku = PrayerState.ruku;
+const itidal = PrayerState.itidal;
+const sujood = PrayerState.sujood;
+const middle = PrayerState.middleSitting;
+const finalSitting = PrayerState.finalSitting;
+
+LabelInterval iv(int s, int e, PrayerState st, [int rakah = 0, Posture? p]) {
   final posture = p ??
       switch (st) {
-        PrayerState.ruku1 || PrayerState.ruku2 => Posture.bowing,
-        PrayerState.sujood1 || PrayerState.sujood2 => Posture.prostrating,
-        PrayerState.finalSitting => Posture.sitting,
+        PrayerState.ruku => Posture.bowing,
+        PrayerState.sujood => Posture.prostrating,
+        PrayerState.middleSitting ||
+        PrayerState.finalSitting =>
+          Posture.sitting,
         _ => Posture.standing,
       };
   return LabelInterval(
       startMs: s, endMs: e, posture: posture, state: st, rakah: rakah);
 }
 
-/// waiting, takbir at 1000, qiyam1 1800-10000, ruku1, itidal1, sujood1,
-/// qiyam2 20000-30000 (standing from 20300), ruku2 ..., finalSitting.
+/// waiting, takbir at 1000, qiyam 1 1800-10000, ruku 1, itidal 1, sujood 1,
+/// qiyam 2 20000-30000 (standing from 20300), ruku 2 ..., finalSitting.
 LabelSet labels({bool takbir = true}) => LabelSet(
       recording: 'x.recording.ndjson',
       takbirTimesMs: takbir ? const [1000] : const [],
       intervals: [
-        iv(0, 1000, PrayerState.waiting),
-        iv(1000, 1800, takbir ? PrayerState.takbir : PrayerState.waiting),
-        iv(1800, 10000, takbir ? PrayerState.qiyam1 : PrayerState.waiting),
-        iv(10000, 13000, PrayerState.ruku1),
-        iv(13000, 15000, PrayerState.itidal1),
-        iv(15000, 20000, PrayerState.sujood1),
-        iv(20000, 20300, PrayerState.qiyam2, p: Posture.unknown),
-        iv(20300, 30000, PrayerState.qiyam2),
-        iv(30000, 33000, PrayerState.ruku2),
-        iv(33000, 35000, PrayerState.itidal2),
-        iv(35000, 40000, PrayerState.sujood2),
-        iv(40000, 50000, PrayerState.finalSitting),
+        iv(0, 1000, waiting),
+        iv(1000, 1800, takbir ? takbirSt : waiting),
+        takbir ? iv(1800, 10000, qiyam, 1) : iv(1800, 10000, waiting),
+        iv(10000, 13000, ruku, 1),
+        iv(13000, 15000, itidal, 1),
+        iv(15000, 20000, sujood, 1),
+        iv(20000, 20300, qiyam, 2, Posture.unknown),
+        iv(20300, 30000, qiyam, 2),
+        iv(30000, 33000, ruku, 2),
+        iv(33000, 35000, itidal, 2),
+        iv(35000, 40000, sujood, 2),
+        iv(40000, 50000, finalSitting, 2),
       ],
     );
 
 const toFinal = [
-  StateChanged(40500,
-      from: PrayerState.sujood2, to: PrayerState.finalSitting, rakah: 2),
+  StateChanged(40500, from: sujood, to: finalSitting, rakah: 2),
+];
+
+/// [labels] continued as Isha: middle sitting 40000-50000, qiyam 3
+/// 50000-60000, ruku/itidal/sujood 3, qiyam 4 70000-80000, ..., final
+/// sitting 90000-100000.
+LabelSet ishaLabels() => LabelSet(
+      recording: 'isha.recording.ndjson',
+      prayer: Prayer.isha,
+      takbirTimesMs: const [1000],
+      intervals: [
+        ...labels().intervals.where((i) => i.state != finalSitting),
+        iv(40000, 50000, middle, 2),
+        iv(50000, 60000, qiyam, 3),
+        iv(60000, 63000, ruku, 3),
+        iv(63000, 65000, itidal, 3),
+        iv(65000, 70000, sujood, 3),
+        iv(70000, 80000, qiyam, 4),
+        iv(80000, 83000, ruku, 4),
+        iv(83000, 85000, itidal, 4),
+        iv(85000, 90000, sujood, 4),
+        iv(90000, 100000, finalSitting, 4),
+      ],
+    );
+
+/// The machine's state changes for a clean Isha against [ishaLabels].
+const ishaChanges = [
+  StateChanged(1000, from: waiting, to: takbirSt, rakah: 0),
+  StateChanged(1800, from: takbirSt, to: qiyam, rakah: 1),
+  StateChanged(10500, from: qiyam, to: ruku, rakah: 1),
+  StateChanged(13000, from: ruku, to: itidal, rakah: 1),
+  StateChanged(15500, from: itidal, to: sujood, rakah: 1),
+  StateChanged(21000, from: sujood, to: qiyam, rakah: 2),
+  StateChanged(30500, from: qiyam, to: ruku, rakah: 2),
+  StateChanged(33000, from: ruku, to: itidal, rakah: 2),
+  StateChanged(35500, from: itidal, to: sujood, rakah: 2),
+  StateChanged(43000, from: sujood, to: middle, rakah: 2),
+  StateChanged(51000, from: middle, to: qiyam, rakah: 3),
+  StateChanged(60500, from: qiyam, to: ruku, rakah: 3),
+  StateChanged(63000, from: ruku, to: itidal, rakah: 3),
+  StateChanged(65500, from: itidal, to: sujood, rakah: 3),
+  StateChanged(71000, from: sujood, to: qiyam, rakah: 4),
+  StateChanged(80500, from: qiyam, to: ruku, rakah: 4),
+  StateChanged(83000, from: ruku, to: itidal, rakah: 4),
+  StateChanged(85500, from: itidal, to: sujood, rakah: 4),
+  StateChanged(95000, from: sujood, to: finalSitting, rakah: 4),
+];
+
+List<PrayerEvent> withChanges(List<PrayerEvent> audio) =>
+    [...audio, ...ishaChanges]..sort((a, b) => a.tMs.compareTo(b.tMs));
+
+/// The machine's state changes for a clean Fajr against [labels].
+final fajrChanges = [
+  ...ishaChanges.where((e) => e.tMs < 40000),
+  ...toFinal,
 ];
 
 ReplayResult scoreOf(List<PrayerEvent> events,
         {LabelSet? l, bool strict = false}) =>
-    score(l ?? labels(), [...events, ...toFinal],
+    score(l ?? labels(),
+        [...events, ...fajrChanges]..sort((a, b) => a.tMs.compareTo(b.tMs)),
         name: 'x', endMs: 50000, strict: strict);
 
 // ---------------------------------------------------------------------------
@@ -65,20 +121,35 @@ ReplayResult scoreOf(List<PrayerEvent> events,
 
 const timeScale = 0.05;
 
-/// Every case x [seeds] seeds, clean and perturbed, plus a random batch.
-List<SyntheticPrayer> dataset({int seeds = 4, int batch = 100}) => [
-      for (final c in SyntheticCase.values)
-        for (var s = 1; s <= seeds; s++) ...[
-          generateSyntheticPrayer(c,
-              seed: s,
-              options: const SyntheticOptions.clean(timeScale: timeScale)),
-          generateSyntheticPrayer(c,
-              seed: s,
-              options: SyntheticOptions.random(math.Random(s * 1009 + c.index),
-                  timeScale: timeScale),
-              name: 'synthetic-${c.name}-s$s-perturbed'),
-        ],
-      ...generateSyntheticBatch(batch, seed: 7777, timeScale: timeScale),
+/// Seeds per case, per prayer (Dhuhr and Asr script like Isha).
+const seedsFor = {
+  Prayer.fajr: 2,
+  Prayer.maghrib: 2,
+  Prayer.isha: 2,
+  Prayer.dhuhr: 1,
+  Prayer.asr: 1,
+};
+
+/// Every case of every prayer x its seeds, clean and perturbed, plus a
+/// random batch cycling through the five prayers.
+List<SyntheticPrayer> dataset({int batch = 100}) => [
+      for (final p in Prayer.values)
+        for (final c in SyntheticCase.forPrayer(p))
+          for (var s = 1; s <= seedsFor[p]!; s++) ...[
+            generateSyntheticPrayer(c,
+                seed: s,
+                prayer: p,
+                options: const SyntheticOptions.clean(timeScale: timeScale)),
+            generateSyntheticPrayer(c,
+                seed: s,
+                prayer: p,
+                options: SyntheticOptions.random(
+                    math.Random(s * 1009 + c.index),
+                    timeScale: timeScale),
+                name: 'synthetic-${p.name}-${c.name}-s$s-perturbed'),
+          ],
+      ...generateSyntheticBatch(batch,
+          seed: 7777, timeScale: timeScale, prayers: Prayer.values),
     ];
 
 /// True when [o] happened while the user could not be seen at the bow: a
@@ -142,7 +213,8 @@ void main() {
         StartRecitation(14000, rakah: 2), // i'tidal 1
         StopRecitation(14100),
       ]);
-      expect(r.wrongStarts.single.labelState, PrayerState.itidal1);
+      expect(r.wrongStarts.single.labelState, itidal);
+      expect(r.wrongStarts.single.labelRakah, 1);
       expect(r.wrongTimeAudio, isTrue);
       // Neither qiyam got its recitation.
       expect(r.missed, hasLength(2));
@@ -161,7 +233,7 @@ void main() {
       ]);
       expect(late.overruns.single.overrunMs, 400);
       expect(late.overruns.single.leftQiyamMs, 30000);
-      expect(late.overruns.single.labelState, PrayerState.ruku2);
+      expect(late.overruns.single.labelState, ruku);
       expect(late.worstOverrunMs, 400);
       expect(late.wrongTimeAudio, isTrue);
       // A 1 s grace (the spec's bowing-to-silence target) still accepts it.
@@ -298,7 +370,8 @@ void main() {
         ResumeRecitation(33500, rakah: 2), // i'tidal 2
         StopRecitation(33600),
       ]);
-      expect(r.wrongResumes.single.labelState, PrayerState.itidal2);
+      expect(r.wrongResumes.single.labelState, itidal);
+      expect(r.wrongResumes.single.labelRakah, 2);
       expect(r.wrongTimeAudio, isTrue);
       expect(r.problems, contains('resumed outside qiyam'));
       // Playing 33500-33600 is past the grace too.
@@ -313,6 +386,85 @@ void main() {
       ]);
       expect(r.prematureStops, 1);
       expect(r.stopLatencyMs[2], -6000);
+    });
+
+    test('four rak\'ahs: every start scored against its own rak\'ah', () {
+      final ok = score(
+          ishaLabels(),
+          withChanges(const [
+            StartRecitation(1900, rakah: 1),
+            StopRecitation(10200),
+            StartRecitation(21000, rakah: 2),
+            StopRecitation(30200),
+            StartRecitation(51000, rakah: 3),
+            StopRecitation(60200),
+            StartRecitation(71000, rakah: 4),
+            StopRecitation(80200),
+          ]),
+          name: 'isha',
+          endMs: 100000);
+      expect(ok.prayer, Prayer.isha);
+      expect(ok.problems, isEmpty);
+      expect(ok.eligibleQiyam.map((q) => q.rakah), [1, 2, 3, 4]);
+      expect(ok.startLatencyMs, {1: 100, 2: 1000, 3: 1000, 4: 1000});
+      expect(ok.rakahCountOk, isTrue);
+      expect(ReplaySummary([ok]).startP(3, 50), 1000);
+
+      // Rak'ah 3's recitation in rak'ah 4's qiyam: wrong-time (the wrong
+      // rak'ah), and both qiyams count as missed.
+      final wrong = score(
+          ishaLabels(),
+          withChanges(const [
+            StartRecitation(72000, rakah: 3),
+            StopRecitation(80200),
+          ]),
+          name: 'isha',
+          endMs: 100000);
+      expect(wrong.wrongStarts.single.labelState, qiyam);
+      expect(wrong.wrongStarts.single.labelRakah, 4);
+      expect(wrong.missed.map((q) => q.rakah), [1, 2, 3, 4]);
+      // A start in the middle sitting is wrong-time.
+      final sitting = score(
+          ishaLabels(),
+          withChanges(
+              const [StartRecitation(45000, rakah: 3), StopRecitation(45100)]),
+          name: 'isha',
+          endMs: 100000);
+      expect(sitting.wrongStarts.single.labelState, middle);
+    });
+
+    test(
+        'rak\'ah count: the machine\'s rak\'ah at the end of every '
+        'labelled sujood', () {
+      // A machine one rak'ah behind from the middle sitting on:
+      // mismatches at the end of sujood 3 and 4.
+      final behind = [
+        for (final e in ishaChanges)
+          if (e.tMs > 45000)
+            StateChanged(e.tMs, from: e.from, to: e.to, rakah: e.rakah - 1)
+          else
+            e,
+      ];
+      final r = score(ishaLabels(), behind, name: 'isha', endMs: 100000);
+      expect(r.reachedFinal, isTrue);
+      expect(r.rakahCountOk, isFalse);
+      expect(r.rakahMismatches.map((m) => (m.labelRakah, m.machineRakah)),
+          [(3, 2), (4, 3)]);
+      expect(r.problems, contains('rak\'ah count off'));
+      // Frozen (lost tracking) at a sujood end: not judged there.
+      final frozen = score(
+          ishaLabels(),
+          [
+            ...ishaChanges.where((e) => e.tMs < 65000),
+            const TrackingLost(66000),
+            const TrackingRestored(71000),
+            ...ishaChanges.where((e) => e.tMs >= 71000),
+          ],
+          name: 'isha',
+          endMs: 100000);
+      // The sujood 3 label ends at 69999, while frozen in itidal 3 (rak'ah
+      // 3 anyway): fine either way; nothing reported.
+      expect(frozen.rakahMismatches, isEmpty);
     });
 
     test('percentile is nearest-rank', () {
@@ -365,11 +517,112 @@ void main() {
       expect(r.finalState, PrayerState.done);
       expect(r.endReason, EndReason.completed);
     });
+
+    test('replays each prayer with a machine for the labels\' prayer', () {
+      for (final prayer in Prayer.values) {
+        final p = generateSyntheticPrayer(SyntheticCase.normal,
+            seed: 1,
+            prayer: prayer,
+            options: const SyntheticOptions.clean(timeScale: 0.05));
+        final r = replay(p.recording, p.labels, name: p.name);
+        expect(r.prayer, prayer);
+        expect(r.problems, isEmpty, reason: prayer.name);
+        expect(r.events.whereType<StartRecitation>().map((e) => e.rakah),
+            [for (var k = 1; k <= prayer.rakahCount; k++) k],
+            reason: prayer.name);
+        expect(
+            r.events
+                .whereType<StateChanged>()
+                .where((e) => e.to == PrayerState.middleSitting),
+            hasLength(prayer.hasMiddleSitting ? 1 : 0));
+        expect(r.endReason, EndReason.completed);
+      }
+    });
+  });
+
+  test(
+      'a final tashahhud the 5 s hold never confirms still ends as done '
+      '(synthetic-0213-asr-normal of --batch 300 --seed 9090, before the '
+      'hands-first case existed)', () {
+    // The options SyntheticOptions.random drew for that prayer.
+    const options = SyntheticOptions(
+      timeScale: 0.05,
+      timingJitterMs: 2.2545646195753193,
+      frameSkipRate: 0.027177924922789566,
+      pixelNoise: 3.776511298044234,
+      confJitter: 0.022174062215894807,
+      frameDropoutRate: 0.005253826331550852,
+    );
+    final p = generateSyntheticPrayer(SyntheticCase.normal,
+        seed: 1698651982, prayer: Prayer.asr, options: options);
+    final r = replay(p.recording, p.labels, name: p.name);
+    expect(r.finalState, PrayerState.done);
+    expect(r.endReason, EndReason.completed);
+    expect(r.wrongTimeAudio, isFalse);
+    expect(r.events.whereType<StartRecitation>().map((e) => e.rakah),
+        [1, 2, 3, 4]);
+    expect(r.rakahCountOk, isTrue);
+    // The machine never confirmed the final sitting: it was filled in when
+    // the user got up from sujood.
+    final fsAt = r.events
+        .whereType<StateChanged>()
+        .singleWhere((e) => e.to == PrayerState.finalSitting);
+    expect(fsAt.from, PrayerState.sujood);
+    expect(r.events.whereType<SessionEnded>().single.tMs, fsAt.tMs);
+  });
+
+  test(
+      'hands-first descent: the bow on the way down to sujood is no second '
+      'ruku, every rak\'ah recites', () {
+    for (final prayer in Prayer.values) {
+      for (final seed in [1, 2, 3]) {
+        for (final options in const [
+          SyntheticOptions.clean(timeScale: 0.05),
+          SyntheticOptions(timeScale: 0.05),
+        ]) {
+          final p = generateSyntheticPrayer(SyntheticCase.handsFirstDescent,
+              seed: seed, prayer: prayer, options: options);
+          final m = SalahStateMachine(prayer: prayer);
+          final r = replay(p.recording, p.labels,
+              name: p.name,
+              machine: m,
+              options: const ReplayOptions(keepReadings: true));
+          expect(r.problems, isEmpty, reason: p.name);
+          expect(m.countUncertain, isFalse, reason: p.name);
+          expect(r.events.whereType<StartRecitation>().map((e) => e.rakah),
+              [for (var k = 1; k <= prayer.rakahCount; k++) k],
+              reason: p.name);
+          // The descent really shows a smoothed bow in i'tidal (what used
+          // to be taken for a second ruku).
+          final changes = r.events.whereType<StateChanged>().toList();
+          var state = PrayerState.waiting;
+          var ci = 0;
+          int? since;
+          var longest = 0;
+          for (final x in r.readings) {
+            while (ci < changes.length && changes[ci].tMs <= x.tMs) {
+              state = changes[ci++].to;
+            }
+            if (state == PrayerState.itidal && x.posture == Posture.bowing) {
+              since ??= x.tMs;
+              if (x.tMs - since > longest) longest = x.tMs - since;
+            } else {
+              since = null;
+            }
+          }
+          expect(longest, greaterThanOrEqualTo(500), reason: p.name);
+        }
+      }
+    }
   });
 
   group('accuracy on synthetic prayers', () {
     late List<ReplayResult> results;
     late ReplaySummary summary;
+
+    /// Everything but [SyntheticCase.missedMiddleSitting], whose rak'ah 3
+    /// is silent by design (the middle sitting cannot be confirmed).
+    late ReplaySummary ordinary;
 
     /// The random batch alone: independent seeds and timings. (In the case
     /// matrix every case with the same seed shares the same random timings,
@@ -383,13 +636,49 @@ void main() {
               name: p.name, options: const ReplayOptions(keepReadings: true)),
       ];
       summary = ReplaySummary(results);
+      ordinary = ReplaySummary([
+        for (final r in results)
+          if (!r.name.contains('missedMiddleSitting')) r
+      ]);
       batch = ReplaySummary(results.sublist(results.length - 100));
     });
 
     test('dataset size', () {
-      // 13 cases x 4 seeds x clean/perturbed + 100 random prayers.
-      expect(summary.prayers, 204);
-      expect(summary.rakahs, greaterThan(380));
+      // (14 Fajr cases x 2 + 15 cases x (2 + 2 + 1 + 1)) seeds x
+      // clean/perturbed + 100 random prayers.
+      expect(summary.prayers, (14 * 2 + 15 * 6) * 2 + 100);
+      expect(summary.rakahs, greaterThan(900));
+      for (final p in Prayer.values) {
+        expect(results.where((r) => r.prayer == p), isNotEmpty);
+      }
+    });
+
+    test('zero wrong-time audio for every prayer', () {
+      for (final p in Prayer.values) {
+        final s = ReplaySummary([
+          for (final r in results)
+            if (r.prayer == p) r
+        ]);
+        expect(s.wrongStarts + s.overruns + s.wrongResumes, 0, reason: p.name);
+      }
+    });
+
+    test(
+        'an unconfirmed middle sitting leaves rak\'ah 3 silent, not '
+        'rak\'ah 4', () {
+      final m = [
+        for (final r in results)
+          if (r.name.contains('missedMiddleSitting')) r
+      ];
+      expect(m, isNotEmpty);
+      for (final r in m) {
+        expect(r.wrongTimeAudio, isFalse, reason: r.name);
+        expect(r.rakahCountOk, isTrue, reason: r.name);
+      }
+      final missed3 = m.where((r) => r.missed.any((q) => q.rakah == 3)).length;
+      expect(missed3, greaterThan(m.length ~/ 2));
+      expect(m.where((r) => r.missed.any((q) => q.rakah == 4)).length,
+          lessThanOrEqualTo(m.length ~/ 10));
     });
 
     test('zero wrong-time starts', () {
@@ -433,14 +722,18 @@ void main() {
       expect(summary.resumes, lessThanOrEqualTo(summary.pauses));
     });
 
-    test('missed qiyam at most 1% of rak\'ahs (spec 2%)', () {
-      // Measured: 0 of 1000 (cases x 20 seeds), 4 of 1000 (520-prayer
-      // batch); each miss is a takbir raise lost in a dropout.
-      expect(summary.missedRate, lessThanOrEqualTo(0.01));
+    test('missed qiyam at most 1.5% of rak\'ahs (spec 2%)', () {
+      // Measured with the harness (all prayers, missedMiddleSitting left
+      // out): about 0.5% (matrix 10 seeds and the 520-prayer batch); most
+      // misses are a takbir raise lost in a dropout, a few a middle
+      // sitting too broken to confirm.
+      expect(ordinary.missedRate, lessThanOrEqualTo(0.015));
     });
 
-    test('final sitting reached exactly when labelled, in 99% of prayers', () {
-      // Measured: 0 of 520 and 1 of 520 (dropouts in a 6 s tashahhud).
+    test('rak\'ah count right in 99% of prayers', () {
+      // Final sitting reached exactly when labelled, and the machine in
+      // the labelled rak'ah at the end of every sujood. Measured: 0 of
+      // 1380 (matrix) and 0 of 520 (batch).
       expect(
           summary.rakahCountWrong / summary.prayers, lessThanOrEqualTo(0.01));
     });
@@ -454,11 +747,15 @@ void main() {
       expect(summary.maxEarlyMs, lessThanOrEqualTo(350));
     });
 
-    test('rak\'ah 2 starts within 0.8 s of the 0.8 s hold (p90)', () {
-      // Spec: at most 1.0 s after the hold. Measured p90 from the qiyam2
-      // label (middle of the rise) 1.46-1.51 s, i.e. hold + 0.7 s.
-      expect(summary.startP(2, 90), lessThanOrEqualTo(800 + 800));
-      expect(summary.startP(2, 50), greaterThanOrEqualTo(800));
+    test('rak\'ahs 2-4 start within 0.8 s of the 0.8 s hold (p90)', () {
+      // Spec: at most 1.0 s after the hold. Measured p90 from the qiyam
+      // label (middle of the rise) 1.39-1.52 s, i.e. hold + 0.7 s.
+      for (final k in [2, 3, 4]) {
+        expect(summary.startP(k, 90), lessThanOrEqualTo(800 + 800),
+            reason: 'rak\'ah $k');
+        expect(summary.startP(k, 50), greaterThanOrEqualTo(800),
+            reason: 'rak\'ah $k');
+      }
     });
 
     test('bow to stop within 0.4 s (p90; spec 1.0 s)', () {
