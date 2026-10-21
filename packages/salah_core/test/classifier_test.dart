@@ -336,7 +336,9 @@ List<SyntheticPrayer> cases(int seedBase, SyntheticOptions Function(int) opts,
         {int perCase = 1}) =>
     [
       for (var k = 0; k < perCase; k++)
-        for (final c in SyntheticCase.values)
+        // The Fajr cases: the classifier sees the same postures in every
+        // prayer.
+        for (final c in SyntheticCase.forPrayer(Prayer.fajr))
           generateSyntheticPrayer(c,
               seed: seedBase + 100 * k + c.index, options: opts(k)),
     ];
