@@ -54,32 +54,55 @@ void expectValid(SyntheticPrayer s) {
   expect(decodeLabels(lab).recording, s.recordingFileName);
 }
 
-/// Contiguous runs of the same state.
-List<(PrayerState, int, int)> stateRuns(LabelSet l) {
-  final runs = <(PrayerState, int, int)>[];
+/// Contiguous runs of the same state (and rak'ah).
+List<(PrayerState, int, int)> stateRuns(LabelSet l) =>
+    [for (final r in stateRakahRuns(l)) (r.$1, r.$3, r.$4)];
+
+/// Contiguous runs of the same (state, rak'ah): (state, rak'ah, start, end).
+List<(PrayerState, int, int, int)> stateRakahRuns(LabelSet l) {
+  final runs = <(PrayerState, int, int, int)>[];
   for (final iv in l.intervals) {
-    if (runs.isNotEmpty && runs.last.$1 == iv.state) {
-      runs[runs.length - 1] = (iv.state, runs.last.$2, iv.endMs);
+    if (runs.isNotEmpty &&
+        runs.last.$1 == iv.state &&
+        runs.last.$2 == iv.rakah) {
+      runs[runs.length - 1] = (iv.state, iv.rakah, runs.last.$3, iv.endMs);
     } else {
-      runs.add((iv.state, iv.startMs, iv.endMs));
+      runs.add((iv.state, iv.rakah, iv.startMs, iv.endMs));
     }
   }
   return runs;
 }
+
+const qiyam = PrayerState.qiyam;
+const ruku = PrayerState.ruku;
+const itidal = PrayerState.itidal;
+const sujood = PrayerState.sujood;
 
 int labelledMs(LabelSet l, bool Function(LabelInterval) where) =>
     l.intervals.where(where).fold(0, (a, iv) => a + iv.endMs - iv.startMs);
 
 void main() {
   group('every case', () {
-    for (final c in SyntheticCase.values) {
-      test('${c.name} is valid (default options)', () {
-        expectValid(generateSyntheticPrayer(c,
-            seed: 7, options: const SyntheticOptions(timeScale: fast)));
+    // Dhuhr and Asr script exactly like Isha (4 rak'ahs); they are covered
+    // by the batch and label tests below.
+    for (final (prayer, c) in [
+      for (final p in [Prayer.fajr, Prayer.maghrib, Prayer.isha])
+        for (final c in SyntheticCase.forPrayer(p)) (p, c),
+    ]) {
+      final name = '${prayer.name} ${c.name}';
+      test('$name is valid (default options)', () {
+        final s = generateSyntheticPrayer(c,
+            seed: 7,
+            prayer: prayer,
+            options: const SyntheticOptions(timeScale: fast));
+        expectValid(s);
+        expect(s.labels.prayer, prayer);
+        expect(decodeLabels(s.encodeLabelsText()).prayer, prayer);
       });
-      test('${c.name} is valid (heavy perturbations)', () {
+      test('$name is valid (heavy perturbations)', () {
         expectValid(generateSyntheticPrayer(c,
             seed: 11,
+            prayer: prayer,
             options: const SyntheticOptions(
               timeScale: fast,
               timingJitterMs: 10,
@@ -103,8 +126,43 @@ void main() {
     final total = s.labels.intervals.last.endMs;
     expect(total, greaterThan(120000));
     expect(total, lessThan(600000));
-    final q1 = labelledMs(s.labels, (iv) => iv.state == PrayerState.qiyam1);
+    final q1 = labelledMs(
+        s.labels, (iv) => iv.state == PrayerState.qiyam && iv.rakah == 1);
     expect(q1, inInclusiveRange(40000, 125000));
+  });
+
+  test('default timeScale: a realistic four-rak\'ah prayer', () {
+    final s = generateSyntheticPrayer(SyntheticCase.normal,
+        seed: 3, prayer: Prayer.isha);
+    expectValid(s);
+    final total = s.labels.intervals.last.endMs;
+    expect(total, greaterThan(240000));
+    expect(total, lessThan(900000));
+    for (final k in [3, 4]) {
+      // Al-Fatiha only: 20-50 s.
+      final ms = labelledMs(
+          s.labels, (iv) => iv.state == PrayerState.qiyam && iv.rakah == k);
+      expect(ms, inInclusiveRange(20000, 52000), reason: 'rak\'ah $k');
+    }
+    final middle = labelledMs(
+        s.labels,
+        (iv) =>
+            iv.state == PrayerState.middleSitting &&
+            iv.posture == Posture.sitting);
+    expect(middle, inInclusiveRange(5000, 41000));
+  });
+
+  test('cases that do not apply to a prayer are refused', () {
+    expect(
+        () => generateSyntheticPrayer(SyntheticCase.shafiiQunut,
+            prayer: Prayer.dhuhr),
+        throwsArgumentError);
+    expect(
+        () => generateSyntheticPrayer(SyntheticCase.missedMiddleSitting,
+            prayer: Prayer.fajr),
+        throwsArgumentError);
+    expect(SyntheticCase.forPrayer(Prayer.fajr), hasLength(14));
+    expect(SyntheticCase.forPrayer(Prayer.maghrib), hasLength(15));
   });
 
   group('determinism', () {
@@ -159,8 +217,32 @@ void main() {
       n++;
     }
     expect(n, 500);
-    expect(cases, SyntheticCase.values.toSet());
+    expect(cases, SyntheticCase.forPrayer(Prayer.fajr).toSet());
   }, timeout: const Timeout(Duration(seconds: 60)));
+
+  test('a batch over every prayer cycles prayers, then each prayer\'s cases',
+      () {
+    final batch = generateSyntheticBatch(Prayer.values.length * 6,
+            seed: 31, timeScale: fast, prayers: Prayer.values)
+        .toList();
+    for (var i = 0; i < batch.length; i++) {
+      final p = Prayer.values[i % Prayer.values.length];
+      expect(batch[i].prayer, p);
+      expect(batch[i].labels.prayer, p);
+      final cases = SyntheticCase.forPrayer(p);
+      expect(
+          batch[i].scenario, cases[(i ~/ Prayer.values.length) % cases.length]);
+      expect(batch[i].name, contains(p == Prayer.fajr ? '-' : '-${p.name}-'));
+    }
+    // The Fajr-only batch is unchanged by the other prayers' existence.
+    final fajr = generateSyntheticBatch(3, seed: 31, timeScale: fast).toList();
+    expect(fajr.map((s) => s.scenario), [
+      SyntheticCase.normal,
+      SyntheticCase.iqamahWait,
+      SyntheticCase.missedTakbir
+    ]);
+    expect(fajr.first.name, startsWith('synthetic-0001-normal-s'));
+  });
 
   group('geometry (spec starting rules) on clean frames', () {
     for (final (seed, facing) in [(1, 1), (2, -1), (3, 1), (4, -1), (5, 1)]) {
@@ -226,30 +308,30 @@ void main() {
 
     test('normal: full sequence, two qiyam, one takbir', () {
       final s = gen(SyntheticCase.normal);
-      final runs = stateRuns(s.labels).map((r) => r.$1).toList();
+      final runs = stateRakahRuns(s.labels).map((r) => (r.$1, r.$2)).toList();
       expect(runs, [
-        PrayerState.waiting,
-        PrayerState.takbir,
-        PrayerState.qiyam1,
-        PrayerState.ruku1,
-        PrayerState.itidal1,
-        PrayerState.sujood1,
-        PrayerState.qiyam2,
-        PrayerState.ruku2,
-        PrayerState.itidal2,
-        PrayerState.sujood2,
-        PrayerState.finalSitting,
-        PrayerState.done,
+        (PrayerState.waiting, 0),
+        (PrayerState.takbir, 0),
+        (qiyam, 1),
+        (ruku, 1),
+        (itidal, 1),
+        (sujood, 1),
+        (qiyam, 2),
+        (ruku, 2),
+        (itidal, 2),
+        (sujood, 2),
+        (PrayerState.finalSitting, 2),
+        (PrayerState.done, 2),
       ]);
-      final qiyamStanding = s.labels.intervals.where((iv) =>
-          (iv.state == PrayerState.qiyam1 || iv.state == PrayerState.qiyam2) &&
-          iv.posture == Posture.standing);
+      final qiyamStanding = s.labels.intervals
+          .where((iv) => iv.state == qiyam && iv.posture == Posture.standing);
       expect(qiyamStanding, hasLength(2));
       expect(s.labels.takbirTimesMs, hasLength(1));
       final t = s.labels.takbirTimesMs.single;
       expect(s.labels.stateAt(t - 1), PrayerState.waiting);
       expect(s.labels.stateAt(t), PrayerState.takbir);
-      expect(s.labels.stateAt(t + takbirHoldMs), PrayerState.qiyam1);
+      expect(s.labels.stateAt(t + takbirHoldMs), qiyam);
+      expect(s.labels.intervalAt(t + takbirHoldMs)!.rakah, 1);
       expect(s.gestures.where((g) => g.kind == SyntheticGestureKind.takbir),
           hasLength(1));
       // Rak'ah numbers.
@@ -286,8 +368,12 @@ void main() {
             isEmpty);
         final states = s.labels.intervals.map((iv) => iv.state).toSet();
         expect(states, isNot(contains(PrayerState.takbir)));
-        expect(states, isNot(contains(PrayerState.qiyam1)));
-        expect(stateRuns(s.labels)[1].$1, PrayerState.ruku1);
+        expect(
+            s.labels.intervals
+                .where((iv) => iv.state == qiyam && iv.rakah == 1),
+            isEmpty);
+        expect(stateRakahRuns(s.labels)[1].$1, ruku);
+        expect(stateRakahRuns(s.labels)[1].$2, 1);
       }
     });
 
@@ -295,13 +381,15 @@ void main() {
       final sh = gen(SyntheticCase.shafiiQunut);
       final q1 =
           sh.gestures.singleWhere((g) => g.kind == SyntheticGestureKind.qunut);
-      expect(sh.labels.stateAt(q1.startMs), PrayerState.itidal2);
-      expect(sh.labels.stateAt(q1.endMs - 1), PrayerState.itidal2);
+      (PrayerState, int) at(SyntheticPrayer p, int t) =>
+          (p.labels.stateAt(t)!, p.labels.intervalAt(t)!.rakah);
+      expect(at(sh, q1.startMs), (itidal, 2));
+      expect(at(sh, q1.endMs - 1), (itidal, 2));
       final ma = gen(SyntheticCase.malikiQunut);
       final q2 =
           ma.gestures.singleWhere((g) => g.kind == SyntheticGestureKind.qunut);
-      expect(ma.labels.stateAt(q2.startMs), PrayerState.qiyam2);
-      expect(ma.labels.stateAt(q2.endMs - 1), PrayerState.qiyam2);
+      expect(at(ma, q2.startMs), (qiyam, 2));
+      expect(at(ma, q2.endMs - 1), (qiyam, 2));
       expect(ma.labels.takbirTimesMs, hasLength(1));
       expect(sh.labels.takbirTimesMs, hasLength(1));
     });
@@ -310,12 +398,12 @@ void main() {
       final s = gen(SyntheticCase.raisedHandsAtRuku);
       final raises =
           s.gestures.where((g) => g.kind == SyntheticGestureKind.rukuRaise);
-      expect(raises.map((g) => s.labels.stateAt(g.startMs)), [
-        PrayerState.qiyam1,
-        PrayerState.itidal1,
-        PrayerState.qiyam2,
-        PrayerState.itidal2,
-      ]);
+      expect(
+          raises.map((g) => (
+                s.labels.stateAt(g.startMs),
+                s.labels.intervalAt(g.startMs)!.rakah
+              )),
+          [(qiyam, 1), (itidal, 1), (qiyam, 2), (itidal, 2)]);
       expect(s.labels.takbirTimesMs, hasLength(1));
     });
 
@@ -323,11 +411,13 @@ void main() {
       final s = gen(SyntheticCase.briefSittingBeforeRakah2);
       final sitting = s.labels.intervals
           .where((iv) =>
-              iv.posture == Posture.sitting && iv.state == PrayerState.sujood1)
+              iv.posture == Posture.sitting &&
+              iv.state == sujood &&
+              iv.rakah == 1)
           .toList();
       expect(sitting, hasLength(2)); // jalsa + the brief sitting
-      final q2 =
-          s.labels.intervals.firstWhere((iv) => iv.state == PrayerState.qiyam2);
+      final q2 = s.labels.intervals
+          .firstWhere((iv) => iv.state == qiyam && iv.rakah == 2);
       expect(q2.startMs, greaterThan(sitting.last.endMs));
       expect(
           s.labels.intervals
@@ -340,10 +430,8 @@ void main() {
     test('hurried jalsa: every jalsa sitting is under 0.5 s', () {
       for (var seed = 0; seed < 5; seed++) {
         final s = gen(SyntheticCase.hurriedJalsa, seed);
-        final jalsas = s.labels.intervals.where((iv) =>
-            iv.posture == Posture.sitting &&
-            (iv.state == PrayerState.sujood1 ||
-                iv.state == PrayerState.sujood2));
+        final jalsas = s.labels.intervals
+            .where((iv) => iv.posture == Posture.sitting && iv.state == sujood);
         expect(jalsas, hasLength(2));
         for (final j in jalsas) {
           expect(j.endMs - j.startMs, lessThan(500));
@@ -357,8 +445,7 @@ void main() {
         expect(s.occlusions, hasLength(1));
         final span = s.occlusions.single;
         final st = s.labels.stateAt(span.startMs + 1);
-        expect(st,
-            anyOf(PrayerState.qiyam1, PrayerState.qiyam2, PrayerState.waiting));
+        expect(st, anyOf(qiyam, PrayerState.waiting));
         var bowingFrames = 0;
         for (final f in s.recording.frames) {
           if (s.labels.postureAt(f.tMs) != Posture.bowing) continue;
@@ -416,6 +503,123 @@ void main() {
       }
     });
 
+    group('three- and four-rak\'ah prayers', () {
+      SyntheticPrayer genP(SyntheticCase c, Prayer p, [int seed = 9]) =>
+          generateSyntheticPrayer(c, seed: seed, prayer: p, options: o);
+
+      for (final p in [Prayer.dhuhr, Prayer.asr, Prayer.maghrib, Prayer.isha]) {
+        final n = p.rakahCount;
+        test('${p.name} normal: N rak\'ahs, middle sitting after rak\'ah 2',
+            () {
+          final s = genP(SyntheticCase.normal, p);
+          expect(stateRakahRuns(s.labels).map((r) => (r.$1, r.$2)).toList(), [
+            (PrayerState.waiting, 0),
+            (PrayerState.takbir, 0),
+            for (var k = 1; k <= n; k++) ...[
+              (qiyam, k),
+              (ruku, k),
+              (itidal, k),
+              (sujood, k),
+              if (k == 2) (PrayerState.middleSitting, 2),
+            ],
+            (PrayerState.finalSitting, n),
+            (PrayerState.done, n),
+          ]);
+          int count(Posture q) =>
+              s.labels.intervals.where((iv) => iv.posture == q).length;
+          expect(count(Posture.prostrating), 2 * n);
+          expect(count(Posture.bowing), n);
+          // n jalsas, the middle and the final sitting.
+          expect(count(Posture.sitting), n + 2);
+          final middle = s.labels.intervals.singleWhere((iv) =>
+              iv.state == PrayerState.middleSitting &&
+              iv.posture == Posture.sitting);
+          expect(middle.endMs - middle.startMs, greaterThanOrEqualTo(5000));
+        });
+      }
+
+      test('short middle tashahhud: 3.5-5.5 s of sitting', () {
+        for (var seed = 0; seed < 5; seed++) {
+          final s = genP(SyntheticCase.shortMiddleTashahhud, Prayer.isha, seed);
+          final ms = labelledMs(
+              s.labels,
+              (iv) =>
+                  iv.state == PrayerState.middleSitting &&
+                  iv.posture == Posture.sitting);
+          expect(ms, inInclusiveRange(3500, 5800));
+        }
+      });
+
+      test('stand with raise: one hand raise, at the start of qiyam 3', () {
+        for (final p in [Prayer.maghrib, Prayer.dhuhr]) {
+          final s = genP(SyntheticCase.standWithRaise, p);
+          final g = s.gestures
+              .singleWhere((g) => g.kind == SyntheticGestureKind.riseRaise);
+          expect(s.labels.stateAt(g.startMs), qiyam);
+          expect(s.labels.intervalAt(g.startMs)!.rakah, 3);
+          expect(s.labels.takbirTimesMs, hasLength(1));
+          expect(s.labels.takbirTimesMs.single, lessThan(g.startMs));
+        }
+      });
+
+      test('missed middle sitting: most of it hidden', () {
+        for (var seed = 0; seed < 5; seed++) {
+          final s = genP(SyntheticCase.missedMiddleSitting, Prayer.dhuhr, seed);
+          final span = s.occlusions.single;
+          final sit = s.labels.intervals.singleWhere((iv) =>
+              iv.state == PrayerState.middleSitting &&
+              iv.posture == Posture.sitting);
+          expect(span.startMs, greaterThanOrEqualTo(sit.startMs));
+          expect(span.endMs, lessThanOrEqualTo(sit.endMs));
+          // What stays visible of the sitting is under 3 s in total.
+          final visible =
+              (sit.endMs - sit.startMs) - (span.endMs - span.startMs);
+          expect(visible, lessThan(3200));
+          expect(span.endMs - span.startMs, lessThan(8000));
+        }
+      });
+
+      test('missed ruku may be in any rak\'ah', () {
+        final rakahs = <int>{};
+        for (var seed = 0; seed < 20; seed++) {
+          final s = genP(SyntheticCase.missedRuku, Prayer.isha, seed);
+          rakahs.add(s.labels.intervalAt(s.occlusions.single.startMs)!.rakah);
+        }
+        expect(rakahs, {1, 2, 3, 4});
+      });
+
+      test('brief sitting before rak\'ahs 2 and 4 (not before 3)', () {
+        final s = genP(SyntheticCase.briefSittingBeforeRakah2, Prayer.isha);
+        final bySujood = <int, int>{};
+        for (final iv in s.labels.intervals) {
+          if (iv.state == sujood && iv.posture == Posture.sitting) {
+            bySujood[iv.rakah] = (bySujood[iv.rakah] ?? 0) + 1;
+          }
+        }
+        expect(bySujood, {1: 2, 2: 1, 3: 2, 4: 1});
+      });
+
+      test('raised hands at ruku also raise when standing for rak\'ah 3', () {
+        final s = genP(SyntheticCase.raisedHandsAtRuku, Prayer.asr);
+        expect(
+            s.gestures.where((g) => g.kind == SyntheticGestureKind.rukuRaise),
+            hasLength(8));
+        expect(
+            s.gestures.where((g) => g.kind == SyntheticGestureKind.riseRaise),
+            hasLength(1));
+      });
+
+      test('sahw and final sitting carry rak\'ah N', () {
+        final s = genP(SyntheticCase.sahwAfterSalam, Prayer.maghrib);
+        expect(
+            s.labels.intervals
+                .where((iv) => iv.state == PrayerState.finalSitting)
+                .map((iv) => iv.rakah)
+                .toSet(),
+            {3});
+      });
+    });
+
     test('child in frame: a second, smaller person for a while', () {
       final s = gen(SyntheticCase.childInFrame);
       final two =
@@ -433,6 +637,66 @@ void main() {
       final f = two[two.length ~/ 2];
       final spans = f.people.map(span).toList()..sort();
       expect(spans.first, lessThan(spans.last));
+    });
+  });
+
+  group('hands-first descent', () {
+    test('the case sets the option; batches draw it at random', () {
+      final s = generateSyntheticPrayer(SyntheticCase.handsFirstDescent,
+          seed: 3, options: const SyntheticOptions.clean(timeScale: fast));
+      expect(s.options.handsFirstDescent, isTrue);
+      expect(const SyntheticOptions().handsFirstDescent, isFalse);
+      final batch =
+          generateSyntheticBatch(200, seed: 9, timeScale: fast).toList();
+      final drawn = batch
+          .where((p) =>
+              p.options.handsFirstDescent &&
+              p.scenario != SyntheticCase.handsFirstDescent)
+          .length;
+      expect(drawn, inInclusiveRange(10, 60));
+    });
+
+    test(
+        'each descent from i\'tidal passes through a ruku-like pose with the '
+        'hips high for about 0.5-1.0 s', () {
+      for (final prayer in [Prayer.fajr, Prayer.isha]) {
+        for (final seed in [1, 2, 3]) {
+          final s = generateSyntheticPrayer(SyntheticCase.handsFirstDescent,
+              seed: seed,
+              prayer: prayer,
+              options: const SyntheticOptions.clean(timeScale: fast));
+          expectValid(s);
+          final n = Near(s.recording.header.side);
+          final frames = s.recording.frames;
+          final standGap = hipGap(frames.first.landmarks!, n);
+          final runs = stateRakahRuns(s.labels);
+          var descents = 0;
+          for (final (state, rakah, start, end) in runs) {
+            if (state != itidal) continue;
+            // From the i'tidal into the first prostrating label of sujood.
+            final sujoodPr = s.labels.intervals.firstWhere((iv) =>
+                iv.state == sujood &&
+                iv.rakah == rakah &&
+                iv.posture == Posture.prostrating);
+            var bowMs = 0;
+            var prev = start;
+            for (final f in frames) {
+              if (f.tMs < start || f.tMs >= sujoodPr.startMs) continue;
+              final l = f.landmarks!;
+              final a = torsoAngle(l, n);
+              if (a >= 55 && a <= 95 && hipGap(l, n) >= 0.85 * standGap) {
+                bowMs += f.tMs - prev;
+              }
+              prev = f.tMs;
+            }
+            expect(bowMs, inInclusiveRange(350, 1400),
+                reason: '${s.name} rak\'ah $rakah');
+            expect(end, lessThan(sujoodPr.startMs));
+            descents++;
+          }
+          expect(descents, prayer.rakahCount, reason: s.name);
+        }
+      }
     });
   });
 

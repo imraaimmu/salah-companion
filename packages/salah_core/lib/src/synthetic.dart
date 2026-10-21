@@ -1,8 +1,10 @@
-/// Synthetic labelled Fajr prayers for tests and tuning, before (and
-/// alongside) real recordings. See docs/SPEC.md, "Test data" and the
-/// "Required replay cases" in "Prayer logic".
+/// Synthetic labelled prayers (any of the five fard prayers) for tests and
+/// tuning, before (and alongside) real recordings. See docs/SPEC.md, "Test
+/// data" and the "Required replay cases" in "Prayer logic".
 ///
-/// A 2D side-view stick body is animated through a scripted Fajr prayer and
+/// A 2D side-view stick body is animated through a scripted prayer of
+/// [Prayer.rakahCount] rak'ahs (with the middle sitting after rak'ah 2 when
+/// there are more than 2) and
 /// rendered to the 33 BlazePose landmarks, then perturbed (pixel noise,
 /// confidence jitter, dropouts, hidden knees, camera tilt, timing jitter, a
 /// second smaller person). The output is a [Recording] plus a [LabelSet], so it
@@ -19,16 +21,23 @@
 ///   starts it (no hold times). The one exception is `takbir`, which by
 ///   definition runs from the takbir event (the moment the raise completes,
 ///   i.e. the hands are back at rest) for [takbirHoldMs] of standing, after
-///   which `qiyam1` starts (matching the 0.8 s hold in the states table).
+///   which `qiyam` of rak'ah 1 starts (matching the 0.8 s hold in the
+///   states table). Every later state carries its rak'ah (1..N); the middle
+///   sitting is `middleSitting` with rak'ah 2, the final sitting
+///   `finalSitting` with rak'ah N.
 /// * When no takbir hand raise happens ([SyntheticCase.missedTakbir]) the
 ///   standing before the first ruku stays `waiting` with rak'ah 0: by the
 ///   spec, Takbir is entered only on a hand-raise event.
 /// * A missed ruku ([SyntheticCase.missedRuku]) is still labelled `bowing` /
-///   `ruku1|2`: the person did bow, the camera just did not see it.
-/// * Jalsa, a brief sitting before rak'ah 2 and the rise up to its midpoint
-///   are labelled with the current `sujood1|2` state; everything after the
-///   midpoint of the move into the final sitting (sujood al-sahw, salam) is
-///   `finalSitting`; standing up afterwards is `done`.
+///   `ruku`: the person did bow, the camera just did not see it. Likewise
+///   an unseen middle sitting ([SyntheticCase.missedMiddleSitting]) is
+///   labelled `middleSitting`.
+/// * Jalsa, a brief sitting before standing and the rise up to its midpoint
+///   are labelled with the current `sujood` state; the middle sitting runs
+///   from the midpoint of the move into it to the midpoint of the rise for
+///   rak'ah 3 (a hand raise on standing up is part of qiyam 3); everything
+///   after the midpoint of the move into the final sitting (sujood al-sahw,
+///   salam) is `finalSitting`; standing up afterwards is `done`.
 /// * **Transitions:** the first 20 % of a posture-changing movement keeps the
 ///   old posture, the last 20 % already carries the new posture, and the
 ///   middle 60 % is labelled `unknown` (the body matches neither posture's
@@ -49,9 +58,14 @@ import 'prayer.dart';
 import 'recording.dart';
 
 /// The scripted scenarios. Together they cover every "Required replay case"
-/// in docs/SPEC.md section "Prayer logic", plus [normal].
+/// in docs/SPEC.md section "Prayer logic", plus [normal], except the late
+/// session start (labels here always start before the takbir; that case is
+/// scripted in test/state_machine_test.dart). Each applies to
+/// the prayers in [appliesTo]: qunut only to Fajr, the middle-sitting cases
+/// only to 3- and 4-rak'ah prayers, everything else to every prayer.
 enum SyntheticCase {
-  /// A plain Fajr: takbir, two rak'ahs, final sitting, salam, stand up.
+  /// A plain prayer: takbir, N rak'ahs (middle sitting after rak'ah 2 when
+  /// N > 2), final sitting, salam, stand up.
   normal,
 
   /// Standing 30–45 s before the takbir (iqamah, intention).
@@ -66,13 +80,17 @@ enum SyntheticCase {
   /// Maliki qunut: raised hands in qiyam 2, before the ruku.
   malikiQunut,
 
-  /// Hands raised before going into ruku and again in i'tidal, both rak'ahs.
+  /// Hands raised before going into ruku and again in i'tidal, every
+  /// rak'ah (and on standing up from the middle sitting, as in Shafi'i
+  /// practice).
   raisedHandsAtRuku,
 
-  /// A brief sitting after the second sujood of rak'ah 1, then standing.
+  /// A brief sitting after the second sujood of rak'ah 1 (and of rak'ah 3
+  /// in a 4-rak'ah prayer), then standing.
   briefSittingBeforeRakah2,
 
-  /// Jalsa held under 0.5 s (labelled sitting time < 500 ms) in both rak'ahs.
+  /// Jalsa held under 0.5 s (labelled sitting time < 500 ms) in every
+  /// rak'ah.
   hurriedJalsa,
 
   /// One ruku (random rak'ah) not seen: frames dropped or very low confidence.
@@ -90,6 +108,41 @@ enum SyntheticCase {
   /// A child (smaller person) walks into frame and stands or copies the
   /// prayer for a while.
   childInFrame,
+
+  /// A middle tashahhud of only 3.5-5.5 s (3- and 4-rak'ah prayers).
+  shortMiddleTashahhud,
+
+  /// Hands raised on standing up from the middle sitting for rak'ah 3
+  /// (Shafi'i, Hanbali); must not be taken for a takbir (3- and 4-rak'ah
+  /// prayers).
+  standWithRaise,
+
+  /// Most of a 5-8 s middle sitting unseen (frames dropped or very low
+  /// confidence, from just after sitting down to 0.5-2.5 s before rising),
+  /// so the machine usually cannot confirm it (3- and 4-rak'ah prayers).
+  missedMiddleSitting,
+
+  /// Every descent from i'tidal to sujood is hands-first (Maliki): through
+  /// a ruku-like pose with the hips high for about 0.5-1.0 s, then the
+  /// hands to the floor, then the knees ([SyntheticOptions.handsFirstDescent]).
+  /// Must not be taken for a second ruku.
+  handsFirstDescent;
+
+  /// Whether this case makes sense for [prayer].
+  bool appliesTo(Prayer prayer) => switch (this) {
+        shafiiQunut || malikiQunut => prayer == Prayer.fajr,
+        shortMiddleTashahhud ||
+        standWithRaise ||
+        missedMiddleSitting =>
+          prayer.hasMiddleSitting,
+        _ => true,
+      };
+
+  /// The cases that apply to [prayer], in declaration order.
+  static List<SyntheticCase> forPrayer(Prayer prayer) => [
+        for (final c in values)
+          if (c.appliesTo(prayer)) c
+      ];
 }
 
 enum SyntheticGestureKind {
@@ -104,6 +157,9 @@ enum SyntheticGestureKind {
 
   /// A salam head turn.
   salam,
+
+  /// A hand raise on standing up from the middle sitting.
+  riseRaise,
 }
 
 /// An arm or head gesture in the script, for classifier tests.
@@ -187,6 +243,12 @@ class SyntheticOptions {
   /// The user's standing height in pixels; null picks 360–500 at random.
   final double? heightPx;
 
+  /// Go down from i'tidal to sujood hands first: a ruku-like pose with the
+  /// hips high for about 0.5-1.0 s, then the hands to the floor, then the
+  /// knees. The movement is labelled like any other descent (see the
+  /// library docs).
+  final bool handsFirstDescent;
+
   const SyntheticOptions({
     this.timeScale = 1.0,
     this.fps = 15,
@@ -202,6 +264,7 @@ class SyntheticOptions {
     this.child = false,
     this.facing,
     this.heightPx,
+    this.handsFirstDescent = false,
   });
 
   /// No noise, jitter or dropouts at all: exact geometry on a 15 fps grid.
@@ -210,6 +273,7 @@ class SyntheticOptions {
     this.fps = 15,
     this.facing,
     this.heightPx,
+    this.handsFirstDescent = false,
   })  : timingJitterMs = 0,
         frameSkipRate = 0,
         pixelNoise = 0,
@@ -237,11 +301,15 @@ class SyntheticOptions {
       tiltDeg: p(0.3) ? u(-4, 4) : 0,
       tiltDriftDeg: p(0.2) ? u(0, 1.5) : 0,
       child: p(0.1),
+      handsFirstDescent: p(0.15),
     );
   }
 
   SyntheticOptions copyWith(
-          {bool? child, double? timeScale, double? pixelNoise}) =>
+          {bool? child,
+          double? timeScale,
+          double? pixelNoise,
+          bool? handsFirstDescent}) =>
       SyntheticOptions(
         timeScale: timeScale ?? this.timeScale,
         fps: fps,
@@ -257,6 +325,7 @@ class SyntheticOptions {
         child: child ?? this.child,
         facing: facing,
         heightPx: heightPx,
+        handsFirstDescent: handsFirstDescent ?? this.handsFirstDescent,
       );
 }
 
@@ -266,6 +335,9 @@ const int takbirHoldMs = 800;
 /// One generated prayer.
 class SyntheticPrayer {
   final SyntheticCase scenario;
+
+  /// The prayer scripted (also [LabelSet.prayer] of [labels]).
+  final Prayer prayer;
   final int seed;
   final SyntheticOptions options;
 
@@ -277,11 +349,13 @@ class SyntheticPrayer {
   /// Every scripted hand raise, qunut and salam turn, in time order.
   final List<SyntheticGesture> gestures;
 
-  /// Spans where the user was deliberately hidden (the missed ruku).
+  /// Spans where the user was deliberately hidden (the missed ruku, the
+  /// missed middle sitting).
   final List<SyntheticSpan> occlusions;
 
   const SyntheticPrayer({
     required this.scenario,
+    this.prayer = Prayer.fajr,
     required this.seed,
     required this.options,
     required this.name,
@@ -298,26 +372,38 @@ class SyntheticPrayer {
   String encodeLabelsText() => encodeLabels(labels);
 }
 
-/// Generates one prayer for [scenario]. Same arguments, same output.
+/// Generates one [prayer] (default Fajr) for [scenario]. Same arguments,
+/// same output. Throws [ArgumentError] when the case does not apply to the
+/// prayer ([SyntheticCase.appliesTo]).
 SyntheticPrayer generateSyntheticPrayer(
   SyntheticCase scenario, {
   int seed = 0,
   SyntheticOptions options = const SyntheticOptions(),
   String? name,
+  Prayer prayer = Prayer.fajr,
 }) {
+  if (!scenario.appliesTo(prayer)) {
+    throw ArgumentError.value(
+        scenario, 'scenario', 'does not apply to ${prayer.name}');
+  }
   final rng = math.Random(seed);
-  final opts = scenario == SyntheticCase.childInFrame
-      ? options.copyWith(child: true)
-      : options;
+  final opts = switch (scenario) {
+    SyntheticCase.childInFrame => options.copyWith(child: true),
+    SyntheticCase.handsFirstDescent =>
+      options.copyWith(handsFirstDescent: true),
+    _ => options,
+  };
   final facing = opts.facing ?? (rng.nextBool() ? 1 : -1);
   final height = opts.heightPx ?? _u(rng, 360, 500);
   final body = _Body.random(rng, height, facing, adult: true);
   final kf = _Keyframes(body, rng);
-  final script = _buildScript(scenario, kf, rng, opts);
-  final fileName = name ?? 'synthetic-${scenario.name}-s$seed';
+  final script = _buildScript(scenario, prayer, kf, rng, opts);
+  final fileName =
+      name ?? 'synthetic-${_prefix(prayer)}${scenario.name}-s$seed';
   final frames = _render(script, body, rng, opts);
   return SyntheticPrayer(
     scenario: scenario,
+    prayer: prayer,
     seed: seed,
     options: opts,
     name: fileName,
@@ -338,14 +424,19 @@ SyntheticPrayer generateSyntheticPrayer(
       recording: '$fileName.recording.ndjson',
       intervals: script.intervals(),
       takbirTimesMs: List.unmodifiable(script.takbirs),
+      prayer: prayer,
     ),
     gestures: List.unmodifiable(script.gestures),
     occlusions: List.unmodifiable(script.occlusions),
   );
 }
 
-/// [count] prayers cycling through every [SyntheticCase] in order, each with
-/// its own derived seed and [SyntheticOptions.random] perturbations.
+/// [count] prayers, each with its own derived seed and
+/// [SyntheticOptions.random] perturbations. Prayer i is
+/// `prayers[i % prayers.length]`, and its case cycles through the cases
+/// that apply to that prayer ([SyntheticCase.forPrayer]) in order, so with
+/// the default (Fajr only) prayer i is case `i % 14`, as before the other
+/// prayers existed.
 ///
 /// [pixelNoise], when given, replaces every prayer's random pixel noise
 /// (normally 0.3–4 px) with that value, e.g. 6 for a stress run. The other
@@ -355,11 +446,17 @@ Iterable<SyntheticPrayer> generateSyntheticBatch(
   int seed = 0,
   double timeScale = 1.0,
   double? pixelNoise,
+  List<Prayer> prayers = const [Prayer.fajr],
 }) sync* {
+  if (prayers.isEmpty) {
+    throw ArgumentError.value(prayers, 'prayers', 'must not be empty');
+  }
   final rng = math.Random(seed);
-  const cases = SyntheticCase.values;
+  final cases = {for (final p in prayers) p: SyntheticCase.forPrayer(p)};
   for (var i = 0; i < count; i++) {
-    final c = cases[i % cases.length];
+    final prayer = prayers[i % prayers.length];
+    final pc = cases[prayer]!;
+    final c = pc[(i ~/ prayers.length) % pc.length];
     var options = SyntheticOptions.random(rng, timeScale: timeScale);
     if (pixelNoise != null) options = options.copyWith(pixelNoise: pixelNoise);
     final s = rng.nextInt(1 << 31);
@@ -367,10 +464,16 @@ Iterable<SyntheticPrayer> generateSyntheticBatch(
       c,
       seed: s,
       options: options,
-      name: 'synthetic-${(i + 1).toString().padLeft(4, '0')}-${c.name}-s$s',
+      prayer: prayer,
+      name: 'synthetic-${(i + 1).toString().padLeft(4, '0')}-'
+          '${_prefix(prayer)}${c.name}-s$s',
     );
   }
 }
+
+/// File-name prefix for [p]: none for Fajr (the names from before the
+/// other prayers existed), else e.g. `dhuhr-`.
+String _prefix(Prayer p) => p == Prayer.fajr ? '' : '${p.name}-';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -792,6 +895,63 @@ class _Keyframes {
     );
   }
 
+  /// The ruku-like pose of a hands-first descent: torso 65-85 degrees, knees
+  /// nearly straight (hips at standing height), hands reaching past the
+  /// knees towards the shins.
+  _Pose handsFirstBow() {
+    final torso = _u(rng, 65, 85);
+    final base = _Pose(
+      shank: _u(rng, 2, 8),
+      thigh: _u(rng, -10, -4),
+      torso: torso,
+      neck: torso + _u(rng, 0, 8),
+      head: torso + _u(rng, 0, 15),
+    );
+    final s = _Skeleton(b, base);
+    final target = s.knee + (s.ankle - s.knee) * _u(rng, 0.2, 0.5);
+    final (u, f) =
+        _armIk(s.shoulder, target, b.upperArm, b.forearm, elbowHigh: true);
+    return _Pose(
+      shank: base.shank,
+      thigh: base.thigh,
+      torso: base.torso,
+      neck: base.neck,
+      head: base.head,
+      upper: u,
+      fore: f,
+    );
+  }
+
+  /// Hands on the floor in front of the feet, knees bent but not yet down,
+  /// hips still high, head below the hips.
+  _Pose handsDown() {
+    final torso = _u(rng, 110, 130);
+    final base = _Pose(
+      foot: _u(rng, 0, 15),
+      shank: _u(rng, 25, 40),
+      thigh: _u(rng, -25, -10),
+      torso: torso,
+      neck: torso + _u(rng, 0, 10),
+      head: torso + _u(rng, -10, 10),
+    );
+    final s = _Skeleton(b, base);
+    final target = _V(s.shoulder.x + _u(rng, 0, 0.05) * b.h, 0.01 * b.h);
+    final (u, f) = _armIk(s.shoulder, target, b.upperArm, b.forearm * 0.95,
+        elbowHigh: true);
+    return _Pose(
+      foot: base.foot,
+      shank: base.shank,
+      thigh: base.thigh,
+      torso: base.torso,
+      neck: base.neck,
+      head: base.head,
+      upper: u,
+      fore: f,
+      foreScale: 0.95,
+      hand: 90,
+    );
+  }
+
   /// Shank angle that puts the knee on the floor for toe pitch [foot].
   double _kneeOnFloor(double foot) {
     final ankle = _rotate(_V(-b.ankleBack, b.ankleUp), -foot);
@@ -1035,13 +1195,14 @@ class _Script {
   }
 }
 
-_Script _buildScript(
-    SyntheticCase c, _Keyframes kf, math.Random rng, SyntheticOptions opts) {
+_Script _buildScript(SyntheticCase c, Prayer prayer, _Keyframes kf,
+    math.Random rng, SyntheticOptions opts) {
   int r(num lo, num hi) => _ms(rng, lo, hi);
   // Long holds scale with timeScale, with floors that keep the sequence valid
   // for the state machine's hold times.
   int long(num lo, num hi, int floor) =>
       math.max(floor, (r(lo, hi) * opts.timeScale).round());
+  final n = prayer.rakahCount;
 
   final sides = kf.armsSides;
   final folded = kf.armsFolded;
@@ -1092,7 +1253,22 @@ _Script _buildScript(
   void prostrate({required PrayerState state, required int rakah}) {
     final from = s.posture;
     final target = kf.prostrating(compact: rng.nextDouble() < 0.25);
-    if (from == Posture.standing) {
+    if (from == Posture.standing && opts.handsFirstDescent) {
+      // Hands first: a ruku-like pose for ~0.5-1.0 s, hands to the floor,
+      // then the knees.
+      final bow = kf.handsFirstBow();
+      s.move([
+        bow,
+        bow,
+        kf.handsDown(),
+        target
+      ], [
+        r(350, 550),
+        r(250, 600),
+        r(400, 650),
+        r(550, 850)
+      ], Posture.prostrating, state: state, rakah: rakah);
+    } else if (from == Posture.standing) {
       s.move([
         kf.kneeling(),
         target
@@ -1108,8 +1284,7 @@ _Script _buildScript(
 
   /// Sujood, jalsa, sujood. Ends prostrating.
   void sujoodPair(int rakah, {required bool hurried}) {
-    final state = rakah == 1 ? PrayerState.sujood1 : PrayerState.sujood2;
-    prostrate(state: state, rakah: rakah);
+    prostrate(state: PrayerState.sujood, rakah: rakah);
     s.hold(r(1800, 5000));
     final down = hurried ? r(350, 450) : r(600, 1000);
     s.move([kf.sitting()], [down], Posture.sitting);
@@ -1119,25 +1294,26 @@ _Script _buildScript(
     s.hold(r(1800, 5000));
   }
 
-  final missedRukuRakah = rng.nextBool() ? 1 : 2;
+  // Fajr keeps its original random draw, so its prayers stay the same.
+  final missedRukuRakah =
+      n == 2 ? (rng.nextBool() ? 1 : 2) : 1 + rng.nextInt(n);
   final hurried = c == SyntheticCase.hurriedJalsa;
 
   /// Ruku and i'tidal of [rakah], from standing; ends standing in i'tidal.
   void rukuItidal(int rakah) {
-    final rukuState = rakah == 1 ? PrayerState.ruku1 : PrayerState.ruku2;
-    final itidalState = rakah == 1 ? PrayerState.itidal1 : PrayerState.itidal2;
     if (c == SyntheticCase.raisedHandsAtRuku) {
       raise(SyntheticGestureKind.rukuRaise, sides);
     }
     final occluded = c == SyntheticCase.missedRuku && rakah == missedRukuRakah;
     final occStart = s.t;
     s.move([kf.bowing()], [r(600, 1200)], Posture.bowing,
-        state: rukuState, rakah: rakah);
+        state: PrayerState.ruku, rakah: rakah);
     s.hold(r(2000, 5500));
     final itidal = c == SyntheticCase.raisedHandsAtRuku
         ? kf.standing(sides)
         : itidalPose();
-    s.move([itidal], [r(600, 1000)], Posture.standing, state: itidalState);
+    s.move([itidal], [r(600, 1000)], Posture.standing,
+        state: PrayerState.itidal);
     if (occluded) {
       s.occlusions.add(SyntheticSpan(occStart, s.t));
       s.occlusionLowConf.add(rng.nextBool());
@@ -1146,6 +1322,29 @@ _Script _buildScript(
       raise(SyntheticGestureKind.rukuRaise, sides);
     }
     s.hold(r(800, 3500));
+  }
+
+  /// The middle sitting (first tashahhud) after rak'ah 2, from the last
+  /// prostration; ends sitting.
+  void middleSitting() {
+    s.move([kf.sitting()], [r(700, 1100)], Posture.sitting,
+        state: PrayerState.middleSitting, rakah: 2);
+    final len = switch (c) {
+      SyntheticCase.shortMiddleTashahhud => r(3500, 5500),
+      // Short enough that the unseen part stays under the machine's 8 s
+      // "count in doubt" blindness, at any time scale.
+      SyntheticCase.missedMiddleSitting => r(5000, 8000),
+      _ => math.max(r(5000, 8000), (r(5000, 40000) * opts.timeScale).round()),
+    };
+    final t0 = s.t;
+    s.hold(len);
+    if (c == SyntheticCase.missedMiddleSitting) {
+      // Unseen from just after sitting down until 0.5-2.5 s before rising.
+      final from = t0 + r(0, 600);
+      final to = math.max(from + 1500, s.t - r(500, 2500));
+      s.occlusions.add(SyntheticSpan(from, math.min(to, s.t)));
+      s.occlusionLowConf.add(rng.nextBool());
+    }
   }
 
   // ---- Before the prayer.
@@ -1166,46 +1365,60 @@ _Script _buildScript(
     s.takbirs.add(s.t);
     s.hold(takbirHoldMs, state: PrayerState.takbir, rakah: 0);
     // Opening dua, Al-Fatiha, Ameen, surah 1.
-    s.hold(long(40000, 120000, 2500), state: PrayerState.qiyam1, rakah: 1);
+    s.hold(long(40000, 120000, 2500), state: PrayerState.qiyam, rakah: 1);
   }
 
-  // ---- Rak'ah 1.
-  rukuItidal(1);
-  sujoodPair(1, hurried: hurried);
+  for (var k = 1; k <= n; k++) {
+    if (k >= 2) {
+      // ---- Rise for rak'ah k.
+      if (k == 3 && n > 2) {
+        // From the middle sitting, with or without a hand raise.
+        final raiseOnRise = c == SyntheticCase.standWithRaise ||
+            c == SyntheticCase.raisedHandsAtRuku;
+        s.move([
+          raiseOnRise ? kf.standing(sides) : standFolded()
+        ], [
+          r(900, 1400)
+        ], Posture.standing, state: PrayerState.qiyam, rakah: k);
+        if (raiseOnRise) raise(SyntheticGestureKind.riseRaise, folded);
+      } else {
+        if (c == SyntheticCase.briefSittingBeforeRakah2) {
+          s.move([kf.sitting()], [r(600, 1000)], Posture.sitting);
+          s.hold(r(800, 2500));
+        }
+        s.move([standFolded()], [r(900, 1400)], Posture.standing,
+            state: PrayerState.qiyam, rakah: k);
+      }
+      // Al-Fatiha and a surah (rak'ah 2), or Al-Fatiha only (3 and 4).
+      s.hold(k == 2 ? long(30000, 100000, 2500) : long(20000, 50000, 2500));
+      if (k == 2 && c == SyntheticCase.malikiQunut) {
+        qunut(after: folded, lower: true);
+        s.hold(r(300, 800));
+      }
+    }
 
-  // ---- Rise for rak'ah 2.
-  if (c == SyntheticCase.briefSittingBeforeRakah2) {
-    s.move([kf.sitting()], [r(600, 1000)], Posture.sitting);
-    s.hold(r(800, 2500));
+    // ---- Rak'ah k.
+    rukuItidal(k);
+    if (k == n && c == SyntheticCase.shafiiQunut) {
+      qunut(after: sides, lower: false);
+    }
+    sujoodPair(k, hurried: hurried);
+    if (k == 2 && n > 2) middleSitting();
   }
-  s.move([standFolded()], [r(900, 1400)], Posture.standing,
-      state: PrayerState.qiyam2, rakah: 2);
-  s.hold(long(30000, 100000, 2500));
-  if (c == SyntheticCase.malikiQunut) {
-    qunut(after: folded, lower: true);
-    s.hold(r(300, 800));
-  }
-
-  // ---- Rak'ah 2.
-  rukuItidal(2);
-  if (c == SyntheticCase.shafiiQunut) {
-    qunut(after: sides, lower: false);
-  }
-  sujoodPair(2, hurried: hurried);
 
   // ---- Final sitting.
   s.move([kf.sitting()], [r(700, 1100)], Posture.sitting,
-      state: PrayerState.finalSitting);
+      state: PrayerState.finalSitting, rakah: n);
   final tashahhud = c == SyntheticCase.longTashahhud
       ? r(100000, 170000)
       : long(20000, 50000, 6000);
   s.hold(tashahhud);
   void sahw() {
-    prostrate(state: PrayerState.finalSitting, rakah: 2);
+    prostrate(state: PrayerState.finalSitting, rakah: n);
     s.hold(r(1800, 4000));
     s.move([kf.sitting()], [r(600, 1000)], Posture.sitting);
     s.hold(r(800, 2500));
-    prostrate(state: PrayerState.finalSitting, rakah: 2);
+    prostrate(state: PrayerState.finalSitting, rakah: n);
     s.hold(r(1800, 4000));
     s.move([kf.sitting()], [r(600, 1000)], Posture.sitting);
   }

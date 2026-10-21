@@ -3,10 +3,12 @@
 A free, private prayer companion for Muslims who are still learning their surahs.
 
 Prop your phone up beside your prayer mat. When the app sees you standing in qiyam, it
-recites Al-Fatiha and a short surah aloud, and you recite along with it. It stays silent
+recites Al-Fatiha and a short surah aloud (Al-Fatiha alone in rak'ahs 3 and 4), and you
+recite along with it. It works for all five daily prayers. It stays silent
 in every other position, and silent whenever it is unsure.
 
-> **Status: design stage.** The pilot covers Fajr (2 rak'ahs) on Android. The full
+> **Status: design stage.** The pilot covers all five fard prayers (Fajr 2 rak'ahs,
+> Dhuhr 4, Asr 4, Maghrib 3, Isha 4) on Android. The full
 > product and technical spec is in [docs/SPEC.md](docs/SPEC.md). No app build exists yet.
 
 ## Promises that never change
@@ -24,8 +26,9 @@ Pull requests that weaken any of these are declined.
 
 1. MediaPipe Pose Landmarker finds 33 body points in each camera frame, on the phone.
 2. A posture classifier labels each moment: standing, bowing, prostrating or sitting.
-3. A prayer state machine follows the order of Fajr, so it knows a standing after a bow
-   (i'tidal) is not qiyam.
+3. A prayer state machine follows the order of the prayer you chose on Home (Fajr,
+   Dhuhr, Asr, Maghrib or Isha, guessed from the clock), so it knows a standing after a
+   bow (i'tidal) is not qiyam, and when the middle sitting comes.
 4. Only when qiyam is confirmed does the app play the recitation, ayah by ayah, with
    gaps you choose so you can follow along.
 

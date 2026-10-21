@@ -28,13 +28,18 @@ environment:
 # the latest version available on pub.dev. To see which dependencies have newer
 # versions available, run `flutter pub outdated`.
 dependencies:
+  audio_session: ^0.2.4
   flutter:
     sdk: flutter
+  just_audio: ^0.10.6
   salah_core:
     path: ../packages/salah_core
+  screen_brightness: ^2.1.11
+  wakelock_plus: ^1.8.1
 
 
 dev_dependencies:
+  fake_async: ^1.3.3
   flutter_test:
     sdk: flutter
 
@@ -56,10 +61,15 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # To add assets to your application, add an assets section, like this:
-  # assets:
-  #   - images/a_dot_burr.jpeg
-  #   - images/a_dot_ham.jpeg
+  # Audio: placeholder tones until the qari's recordings land (#18); see
+  # ../assets/audio/README.md. Quran text: Tanzil, see ../NOTICE.md.
+  # The audio files are generated, not committed: run
+  # `python3 scripts/make_placeholder_audio.py` (the Android build does it by
+  # itself). Folders, not single files, so a fresh clone still builds.
+  assets:
+    - assets/audio/
+    - assets/audio/placeholder/
+    - assets/quran/
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

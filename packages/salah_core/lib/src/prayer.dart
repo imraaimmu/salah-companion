@@ -1,17 +1,59 @@
 /// Prayer states and events. See docs/SPEC.md, section "Prayer logic".
 library;
 
+/// The five fard (obligatory) daily prayers.
+enum Prayer {
+  fajr(2, 'Fajr'),
+  dhuhr(4, 'Dhuhr'),
+  asr(4, 'Asr'),
+  maghrib(3, 'Maghrib'),
+  isha(4, 'Isha');
+
+  /// Number of rak'ahs: Fajr 2, Dhuhr 4, Asr 4, Maghrib 3, Isha 4.
+  final int rakahCount;
+
+  /// English name for the UI ("Start Dhuhr", "Dhuhr completed").
+  final String displayName;
+
+  const Prayer(this.rakahCount, this.displayName);
+
+  /// Whether the prayer has a middle sitting (first tashahhud) after
+  /// rak'ah 2: every prayer of more than 2 rak'ahs.
+  bool get hasMiddleSitting => rakahCount > 2;
+
+  /// Whether the recitation of [rakah] includes a surah after Al-Fatiha:
+  /// rak'ahs 1 and 2 recite Al-Fatiha + a surah, rak'ahs 3 and 4 Al-Fatiha
+  /// only. The same in silent prayers (Dhuhr, Asr) as in the others (the
+  /// user's choice; open question for the religious reviewer, SPEC section
+  /// 8). False for a rak'ah outside 1..[rakahCount].
+  bool hasSurah(int rakah) =>
+      rakah >= 1 && rakah <= rakahCount && rakahHasSurah(rakah);
+
+  /// [hasSurah] for any prayer: true for rak'ah 1 and 2 only. Used by the
+  /// recitation planner, which is told only the rak'ah.
+  static bool rakahHasSurah(int rakah) => rakah == 1 || rakah == 2;
+
+  /// The largest rak'ah count of any fard prayer (4).
+  static const int maxRakahs = 4;
+}
+
+/// Where the user is in the prayer. The states do not depend on the rak'ah:
+/// the rak'ah travels with [StateChanged.rakah] (and the label files).
+///
+/// Sequence for a prayer of N rak'ahs: waiting -> takbir -> per rak'ah k:
+/// qiyam -> ruku -> itidal -> sujood (both prostrations and the jalsa);
+/// after rak'ah 2 when N > 2: middleSitting (first tashahhud), then qiyam of
+/// rak'ah 3; after rak'ah N: finalSitting -> done.
 enum PrayerState {
   waiting,
   takbir,
-  qiyam1,
-  ruku1,
-  itidal1,
-  sujood1,
-  qiyam2,
-  ruku2,
-  itidal2,
-  sujood2,
+  qiyam,
+  ruku,
+  itidal,
+  sujood,
+
+  /// The first tashahhud after rak'ah 2 of a 3- or 4-rak'ah prayer.
+  middleSitting,
   finalSitting,
   done,
 }
@@ -58,7 +100,9 @@ class StateChanged extends PrayerEvent {
   String toString() => 'StateChanged($tMs ms, $from -> $to, rakah $rakah)';
 }
 
-/// Start Al-Fatiha and the surah for [rakah] (1 or 2). Fired once per rak'ah.
+/// Start the recitation for [rakah] (1..N): Al-Fatiha and a surah in
+/// rak'ahs 1 and 2, Al-Fatiha only in rak'ahs 3 and 4 ([Prayer.hasSurah]).
+/// Fired at most once per rak'ah.
 class StartRecitation extends PrayerEvent {
   final int rakah;
   const StartRecitation(super.tMs, {required this.rakah});

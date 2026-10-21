@@ -20,11 +20,13 @@ class AyahClip {
   String toString() => 'AyahClip($surah:$ayah)';
 }
 
-/// What to play for one rak'ah: Al-Fatiha's ayahs followed by the surah's.
+/// What to play for one rak'ah: Al-Fatiha's ayahs followed by the surah's
+/// (rak'ahs 1 and 2), or Al-Fatiha's alone (rak'ahs 3 and 4).
 class RecitationPlan {
   final List<AyahClip> clips;
 
-  /// Silence before the first clip (opening-dua pause in rak'ah 1, 1.5 s in rak'ah 2).
+  /// Silence before the first clip (opening-dua pause in rak'ah 1, 1.5 s in
+  /// later rak'ahs).
   final Duration preRoll;
 
   /// Silence after each ayah.
