@@ -62,13 +62,13 @@ const labels = LabelSet(
         startMs: 2000,
         endMs: 9000,
         posture: Posture.standing,
-        state: PrayerState.qiyam1,
+        state: PrayerState.qiyam,
         rakah: 1),
     LabelInterval(
         startMs: 9500,
         endMs: 12000,
         posture: Posture.bowing,
-        state: PrayerState.ruku1,
+        state: PrayerState.ruku,
         rakah: 1),
   ],
   takbirTimesMs: [1000, 9200, 20000],
@@ -86,8 +86,13 @@ String frameLine(int t, {String? people, String extra = ''}) =>
 String rec(List<String> frames, {String? head}) =>
     '${[head ?? headerLine(), ...frames].join('\n')}\n';
 
+/// Version 1 (Fajr only, states such as `qiyam1`): still read.
 const labelsHeader =
     '{"format":"salah-labels","version":1,"recording":"x.recording.ndjson"}';
+
+String labelsHeaderV2([String? prayer]) =>
+    '{"format":"salah-labels","version":2,"recording":"x.recording.ndjson"'
+    '${prayer == null ? '' : ',"prayer":"$prayer"'}}';
 
 String lab(List<String> lines, {String head = labelsHeader}) =>
     '${[head, ...lines].join('\n')}\n';
@@ -365,6 +370,58 @@ void main() {
       expect(back.recording, labels.recording);
       expect(back.intervals, labels.intervals);
       expect(back.takbirTimesMs, labels.takbirTimesMs);
+      expect(back.prayer, Prayer.fajr);
+      expect(encodeLabels(back), text);
+    });
+
+    test('version 2 header names the prayer', () {
+      final lines = const LineSplitter().convert(encodeLabels(labels));
+      expect(lines.first,
+          '{"format":"salah-labels","version":2,"recording":"fajr-001.recording.ndjson","prayer":"fajr"}');
+    });
+
+    test('a four-rak\'ah prayer with a middle sitting round trips', () {
+      const isha = LabelSet(
+        recording: 'isha.recording.ndjson',
+        prayer: Prayer.isha,
+        intervals: [
+          LabelInterval(
+              startMs: 0,
+              endMs: 10,
+              posture: Posture.prostrating,
+              state: PrayerState.sujood,
+              rakah: 2),
+          LabelInterval(
+              startMs: 10,
+              endMs: 20,
+              posture: Posture.sitting,
+              state: PrayerState.middleSitting,
+              rakah: 2),
+          LabelInterval(
+              startMs: 20,
+              endMs: 30,
+              posture: Posture.standing,
+              state: PrayerState.qiyam,
+              rakah: 3),
+          LabelInterval(
+              startMs: 30,
+              endMs: 40,
+              posture: Posture.bowing,
+              state: PrayerState.ruku,
+              rakah: 4),
+          LabelInterval(
+              startMs: 40,
+              endMs: 50,
+              posture: Posture.sitting,
+              state: PrayerState.finalSitting,
+              rakah: 4),
+        ],
+      );
+      final text = encodeLabels(isha);
+      expect(validateLabels(text), isEmpty);
+      final back = decodeLabels(text);
+      expect(back.prayer, Prayer.isha);
+      expect(back.intervals, isha.intervals);
       expect(encodeLabels(back), text);
     });
 
@@ -383,10 +440,11 @@ void main() {
       expect(labels.stateAt(0), PrayerState.waiting);
       expect(labels.stateAt(999), PrayerState.waiting);
       expect(labels.stateAt(1000), PrayerState.takbir);
-      expect(labels.stateAt(8999), PrayerState.qiyam1);
+      expect(labels.stateAt(8999), PrayerState.qiyam);
+      expect(labels.intervalAt(8999)!.rakah, 1);
       expect(labels.postureAt(8999), Posture.standing);
       expect(labels.postureAt(10000), Posture.bowing);
-      expect(labels.stateAt(11999), PrayerState.ruku1);
+      expect(labels.stateAt(11999), PrayerState.ruku);
     });
 
     test('gaps and outside range return null', () {
@@ -406,7 +464,16 @@ void main() {
       expect(
           validateLabels(lab([],
               head: '{"format":"salah-labels","version":3,"recording":"a"}')),
+          hasError(1, '"version" must be 1 to 2'));
+      expect(
+          validateLabels(lab([],
+              head: '{"format":"salah-labels","version":0,"recording":"a"}')),
           hasError(1, '"version"'));
+      expect(
+          validateLabels(lab([],
+              head: '{"format":"salah-labels","version":2,"recording":"a",'
+                  '"prayer":"tahajjud"}')),
+          hasError(1, '"prayer" has unknown value "tahajjud"'));
       expect(
           validateLabels(
               lab([], head: '{"format":"salah-labels","version":1}')),
@@ -499,6 +566,89 @@ void main() {
           hasError(2, 'must be 0, 1 or 2'));
     });
 
+    test('version 1 states map to (state, rak\'ah); the prayer is Fajr', () {
+      final l = decodeLabels(lab([
+        interval(0, 10, state: 'waiting', rakah: 0),
+        interval(10, 20, state: 'takbir', rakah: 0),
+        interval(20, 30, state: 'qiyam1', rakah: 1),
+        interval(30, 40, state: 'ruku1', rakah: 1),
+        interval(40, 50, state: 'itidal1', rakah: 1),
+        interval(50, 60, state: 'sujood1', rakah: 1),
+        interval(60, 70, state: 'qiyam2', rakah: 2),
+        interval(70, 80, state: 'ruku2', rakah: 2),
+        interval(80, 90, state: 'itidal2', rakah: 2),
+        interval(90, 100, state: 'sujood2', rakah: 2),
+        interval(100, 110, state: 'finalSitting', rakah: 2),
+        interval(110, 120, state: 'done', rakah: 2),
+      ]));
+      expect(l.prayer, Prayer.fajr);
+      expect([
+        for (final iv in l.intervals) (iv.state, iv.rakah)
+      ], [
+        (PrayerState.waiting, 0),
+        (PrayerState.takbir, 0),
+        (PrayerState.qiyam, 1),
+        (PrayerState.ruku, 1),
+        (PrayerState.itidal, 1),
+        (PrayerState.sujood, 1),
+        (PrayerState.qiyam, 2),
+        (PrayerState.ruku, 2),
+        (PrayerState.itidal, 2),
+        (PrayerState.sujood, 2),
+        (PrayerState.finalSitting, 2),
+        (PrayerState.done, 2),
+      ]);
+      // Version 2 names are not version 1 names.
+      expect(validateLabels(lab([interval(0, 10, state: 'qiyam')])),
+          hasError(2, '"state" has unknown value "qiyam"'));
+    });
+
+    test('version 2 rak\'ah rules depend on the prayer', () {
+      String v2(String? prayer, List<String> lines) =>
+          lab(lines, head: labelsHeaderV2(prayer));
+      // No prayer in the header: Fajr.
+      expect(decodeLabels(v2(null, [])).prayer, Prayer.fajr);
+      expect(
+          validateLabels(v2(null, [
+            interval(0, 10, state: 'qiyam', rakah: 2),
+            interval(10, 20, state: 'finalSitting', rakah: 2),
+          ])),
+          isEmpty);
+      final fajr = validateLabels(v2('fajr', [
+        interval(0, 10, state: 'qiyam', rakah: 3),
+        interval(10, 20, state: 'middleSitting', rakah: 2),
+        interval(20, 30, state: 'finalSitting', rakah: 1),
+        interval(30, 40, state: 'ruku', rakah: 0),
+      ]));
+      expect(fajr, hasError(2, 'must be 0 to 2 for fajr'));
+      expect(fajr, hasError(3, 'middleSitting does not occur in fajr'));
+      expect(fajr, hasError(4, 'finalSitting must have rakah 2'));
+      expect(fajr, hasError(5, 'rakah 0 is only allowed'));
+      expect(
+          validateLabels(v2('maghrib', [
+            interval(0, 10, state: 'sujood', rakah: 3),
+            interval(10, 20, state: 'middleSitting', rakah: 2),
+            interval(20, 30, state: 'finalSitting', rakah: 3),
+            interval(30, 40, state: 'done', rakah: 0),
+          ])),
+          isEmpty);
+      final maghrib = validateLabels(v2('maghrib', [
+        interval(0, 10, state: 'qiyam', rakah: 4),
+        interval(10, 20, state: 'middleSitting', rakah: 3),
+        interval(20, 30, state: 'finalSitting', rakah: 2),
+      ]));
+      expect(maghrib, hasError(2, 'must be 0 to 3 for maghrib'));
+      expect(maghrib, hasError(3, 'middleSitting must have rakah 2'));
+      expect(maghrib, hasError(4, 'finalSitting must have rakah 3'));
+      expect(
+          validateLabels(v2('dhuhr', [
+            interval(0, 10, state: 'qiyam', rakah: 4),
+            interval(10, 20, state: 'finalSitting', rakah: 4),
+          ])),
+          isEmpty);
+      expect(decodeLabels(v2('asr', [])).prayer, Prayer.asr);
+    });
+
     test('takbir times must be integers and strictly increasing', () {
       final errors = validateLabels(lab([
         '{"type":"takbir","tMs":100}',
@@ -535,14 +685,22 @@ void main() {
       expect(encodeRecording(decodeRecording(once)), once);
     });
 
-    test('sample labels validate and re-encode byte for byte', () {
+    test(
+        'sample labels (version 1) validate, decode and re-encode as '
+        'version 2, which then round trips byte for byte', () {
+      expect(labText, startsWith('{"format":"salah-labels","version":1,'));
       expect(validateLabels(labText), isEmpty);
       final l = decodeLabels(labText);
       expect(l.recording, 'sample.recording.ndjson');
+      expect(l.prayer, Prayer.fajr);
       expect(l.takbirTimesMs, [50]);
-      expect(l.stateAt(100), PrayerState.qiyam1);
+      expect(l.stateAt(100), PrayerState.qiyam);
+      expect(l.intervalAt(100)!.rakah, 1);
       expect(l.postureAt(150), Posture.bowing);
-      expect(encodeLabels(l), labText);
+      final v2 = encodeLabels(l);
+      expect(v2, startsWith('{"format":"salah-labels","version":2,'));
+      expect(v2, contains('"state":"qiyam","rakah":1'));
+      expect(encodeLabels(decodeLabels(v2)), v2);
     });
 
     test('labels cover the recording frames', () {
