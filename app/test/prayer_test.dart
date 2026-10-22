@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:salah_companion/src/screens/prayer_page.dart';
 import 'package:salah_companion/src/screens/summary_page.dart';
 import 'package:salah_companion/src/services/fakes.dart';
+import 'package:salah_companion/src/services/seams.dart';
 import 'package:salah_core/salah_core.dart';
 
 import 'helpers.dart';
@@ -190,5 +191,66 @@ void main() {
     await tester.pump(const Duration(seconds: 11));
     await tester.pumpAndSettle();
     handle.dispose();
+  });
+
+  testWidgets('tracking details are off by default: no text at all', (
+    tester,
+  ) async {
+    final h = Harness();
+    final runner = await pumpPrayer(tester, h);
+    runner.diagnostics = const SessionDiagnostics(takbirSeen: true);
+    await tester.pump(const Duration(seconds: 1));
+    expect(find.byKey(const Key('tracking-details')), findsNothing);
+    expect(
+      find.descendant(of: find.byType(PrayerPage), matching: find.byType(Text)),
+      findsNothing,
+    );
+  });
+
+  testWidgets('tracking details on: dim lines that follow the session', (
+    tester,
+  ) async {
+    final h = Harness();
+    final runner = await pumpPrayer(
+      tester,
+      h,
+      settings: const SessionSettings(showTrackingDetails: true),
+    );
+    String text() =>
+        tester.widget<Text>(find.byKey(const Key('tracking-details'))).data!;
+    expect(text(), contains('Posture: unknown'));
+    expect(text(), contains("State: waiting, rak'ah 0"));
+    expect(text(), contains('Takbir seen: no'));
+    expect(text(), contains('Audio: no event yet'));
+    expect(text(), isNot(contains('Audio problem')));
+
+    runner.diagnostics = const SessionDiagnostics(
+      posture: Posture.standing,
+      rawPosture: Posture.standing,
+      personSeen: true,
+      state: PrayerState.qiyam,
+      rakah: 1,
+      takbirSeen: true,
+      lastAudioEvent: "Start (rak'ah 1)",
+      audioProblem: 'Source error (0)',
+    );
+    // Polled every 250 ms, not rebuilt on every frame.
+    await tester.pump(PrayerPage.trackingDetailsInterval);
+    expect(text(), contains('Posture: standing (raw standing)'));
+    expect(text(), contains("State: qiyam, rak'ah 1"));
+    expect(text(), contains('Takbir seen: yes'));
+    expect(text(), contains("Audio: Start (rak'ah 1)"));
+    expect(text(), contains('Audio problem: Source error (0)'));
+    final style = tester
+        .widget<Text>(find.byKey(const Key('tracking-details')))
+        .style!;
+    expect(style.color, PrayerPage.trackingDetailsColor);
+    expect(style.fontSize, lessThanOrEqualTo(12));
+
+    // Long-press still ends the session through the text.
+    await longPress(tester, const Duration(milliseconds: 1600));
+    expect(find.byKey(const Key('end-dialog')), findsOneWidget);
+    await tester.pump(const Duration(seconds: 11));
+    await tester.pumpAndSettle();
   });
 }

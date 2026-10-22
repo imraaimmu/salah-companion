@@ -353,6 +353,22 @@ void main() {
     await emit(tester, h, allPass.copyWith(fpsOk: false));
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('a quiet takbir hint appears once all checks pass', (
+    tester,
+  ) async {
+    final h = Harness();
+    await h.pumpScreen(tester, const PlacementPage());
+    const hint =
+        'Raise your hands clearly for the takbir so the recitation can start';
+    await emit(tester, h, allPass.copyWith(floorSpaceOk: false));
+    expect(find.text(hint), findsNothing);
+    await emit(tester, h, allPass);
+    expect(find.text(hint), findsOneWidget);
+    expect(find.byKey(const Key('countdown')), findsOneWidget);
+    await emit(tester, h, allPass.copyWith(fpsOk: false));
+    expect(find.text(hint), findsNothing);
+  });
 }
 
 /// Records circle centres drawn by the painter.
