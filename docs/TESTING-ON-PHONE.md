@@ -31,6 +31,22 @@ on the phone and dropped, nothing is recorded), let you pick surahs or keep **Au
 the opening-dua pause (Short, 6 s, is the default), and check the media volume. Turn the
 media volume up to a comfortable level now: the app never changes it.
 
+### Check the sound before you pray
+
+Open **Settings** (the small icon on Home), scroll to **Audio** and tap **Test sound**.
+It plays the first ayah of Al-Fatiha for a few seconds through exactly the same player
+and audio settings the prayer uses. The line under the button says **Playing…**, then:
+
+- **"You should hear a tone (placeholder audio)."** The audio works. In this build every
+  ayah is a placeholder tone, because the qari's recording does not exist yet; you should
+  hear a low tone ending in a short higher blip. If the screen says this but you heard
+  nothing, check the media volume and that no Bluetooth device took the sound, and tell
+  us.
+- **"No sound: …"** followed by an error. Something stopped the audio. Please send us the
+  exact text (a screenshot is best).
+- **"Media volume is at zero …"** under it: turn the media volume up (the volume keys
+  while the app is open) and try again.
+
 ## 3. Placing the phone
 
 Put the phone **upright (portrait), back camera facing you, about hip height, 2 to 3 m
@@ -61,7 +77,9 @@ Tap the Start button. The placement screen shows the chosen prayer at the top ("
 
 The line above the checks says what to fix ("Move the phone back", "Step back a little so sujood fits in view", "Turn on a light", "Hold still"). **The prompts are text only in this
 build, not spoken**, so you will need to glance at the screen, or have someone read it to
-you. When all four pass, a 5-second countdown starts by itself: step onto your mat.
+you. When all four pass, a quiet line reminds you to **raise your hands clearly for the
+takbir** (rak'ah 1 recites only after the hand raise is seen), and a 5-second countdown
+starts by itself: step onto your mat.
 
 **Test both cameras.** Do the placement check (and, if you can, a practice prayer) once with
 the back camera and once with the front camera:
@@ -104,6 +122,31 @@ What the tones mean:
 - If the takbir hand raise is not seen, rak'ah 1 stays silent on purpose. Rak'ah 2 should
   still play.
 
+### Seeing what the app sees (tracking details)
+
+If you hear nothing during a practice prayer, turn on **Settings → Testing → Show
+tracking details during prayer (for testing)** and pray again. The prayer screen then
+shows a few lines of small, dim text at the bottom (updated about 4 times a second; off,
+the screen stays fully black):
+
+- **Posture:** what the app thinks you are doing now (standing, bowing, prostrating,
+  sitting, unknown), after smoothing, with the raw reading for the latest frame in
+  brackets, and "no person" when nobody is seen.
+- **State:** where it is in the prayer (waiting, takbir, qiyam, ruku, itidal, sujood,
+  middle/final sitting) and the rak'ah number, plus "tracking lost" when it has lost you.
+- **Takbir seen:** yes once a takbir hand raise was detected. If this stays **no** after
+  you raised your hands, rak'ah 1 is silent by design: raise your hands higher and more
+  clearly, side-on to the camera.
+- **Audio:** the last recitation event: Start, Pause, Resume or Stop, with the rak'ah
+  ("Start (rak'ah 1)"). "not played" after Start means the start was skipped (for example
+  tracking was lost at that moment).
+- **Interruption** and **Audio problem:** shown only when one happened; an audio problem
+  is the error the player reported (please send us the exact text).
+
+Glancing at the text spoils the stillness of the black screen, so use it only for test
+runs, and turn it off afterwards. A photo of the screen at the moment the sound should
+have started is very useful.
+
 **To end early, long-press anywhere on the black screen for 1.5 s**, then tap **End**.
 The Back button or switching to another app also ends the session (silently).
 
@@ -142,7 +185,9 @@ For each run, please note:
    take long to pass? Note any difference between the back and front camera.
 9. **Heat and battery:** did the phone get warm? Battery percentage before and after a
    session.
-10. Anything else odd (a crash, the camera not opening, the app closing).
+10. **No sound at all:** what Settings → Test sound said, and, with the tracking details
+    on, what the Takbir seen, Audio and Audio problem lines showed.
+11. Anything else odd (a crash, the camera not opening, the app closing).
 
 A short audio recording of the run on a second phone, with you saying "bowing" or
 "standing" as you move, helps us time the tones against your movement. Do not record
@@ -152,6 +197,7 @@ video of a real prayer.
 
 - **Placeholder tones, not recitation.** The qari's recordings are not in the app yet.
   The tones exist only to test timing; this build must not be shared as a prayer app.
+  Test sound and the prayer both play these tones until the recording exists.
 - **Tuned on synthetic data only.** The posture rules (standing, bowing, prostrating,
   sitting, the takbir hand raise) and every hold time were tuned against generated stick
   figures, not real people or real rooms. Expect mistakes; that is what this test is for.

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:salah_companion/src/pose/pose_wire.dart';
 import 'package:salah_companion/src/services/pose_session_runner.dart';
+import 'package:salah_companion/src/services/seams.dart';
 import 'package:salah_companion/src/services/settings_stores.dart';
 import 'package:salah_core/salah_core.dart';
 import 'package:salah_core/testing.dart';
@@ -32,10 +33,11 @@ class ManualEngine implements PoseEngine {
 
 class Rig {
   final PoseEngine engine;
-  final player = FakeRecitationPlayer();
+  final FakeRecitationPlayer player;
   final planner = FakeRecitationPlanner();
   late final MemorySettingsStore store;
   final playerInterrupts = StreamController<Interruption>.broadcast();
+  final playerProblems = StreamController<Object>.broadcast();
   final lifecycle = StreamController<Interruption>.broadcast();
   late final PoseSessionRunner runner;
 
@@ -53,7 +55,8 @@ class Rig {
     Future<void>? playerReady,
     Duration firstFrameTimeout = const Duration(seconds: 5),
     bool Function()? isAppVisible,
-  }) {
+    FakeRecitationPlayer? player,
+  }) : player = player ?? FakeRecitationPlayer() {
     store = MemorySettingsStore(initial: settings);
     runner = PoseSessionRunner(
       settings: settings,
@@ -63,7 +66,11 @@ class Rig {
       store: store,
       createPlayer: () async {
         if (playerReady != null) await playerReady;
-        return (player: player, interruptions: playerInterrupts.stream);
+        return (
+          player: this.player,
+          interruptions: playerInterrupts.stream,
+          problems: playerProblems.stream,
+        );
       },
       lifecycleInterruptions: () => lifecycle.stream,
       cameraHandoverDelay: Duration.zero,
@@ -332,4 +339,84 @@ void main() {
     expect(end.interruption, Interruption.appBackgrounded);
     expect(engine.starts, 0);
   });
+
+  group('audio problems', () {
+    test('a failing play reaches the status; the session goes on', () async {
+      final prayer = generateSyntheticPrayer(SyntheticCase.normal, seed: 7);
+      final rig = Rig(
+        FakePoseEngine(prayer.recording),
+        player: _FailingPlayer(),
+      );
+      final statuses = <SessionStatus>[];
+      rig.runner.status.listen(statuses.add);
+      final over = lastStatus(rig.runner);
+      await rig.runner.start();
+      final end = await over.timeout(const Duration(seconds: 60));
+      expect(end.ended, EndReason.completed);
+      expect(
+        statuses.map((s) => s.audioProblem),
+        contains('Source error: could not open the file'),
+      );
+      expect(end.audioProblem, 'Source error: could not open the file');
+      expect(
+        rig.runner.diagnostics.audioProblem,
+        'Source error: could not open the file',
+      );
+    });
+
+    test('problems the player reports later reach the status', () async {
+      final engine = ManualEngine();
+      final rig = Rig(engine);
+      unawaited(rig.runner.start());
+      await pumpEventQueue();
+      rig.playerProblems.add(Exception('decoder failed'));
+      await pumpEventQueue();
+      final s = await rig.runner.status.first;
+      expect(s.audioProblem, 'decoder failed');
+      expect(s.isOver, isFalse);
+      await rig.runner.cancel();
+    });
+
+    test('a player that cannot be created ends with the problem', () async {
+      final rig = PoseSessionRunner(
+        settings: Rig.settings,
+        engine: ManualEngine(),
+        planner: FakeRecitationPlanner(),
+        store: MemorySettingsStore(),
+        createPlayer: () async => throw StateError('no audio session'),
+        lifecycleInterruptions: () => const Stream.empty(),
+        cameraHandoverDelay: Duration.zero,
+      );
+      final over = lastStatus(rig);
+      await rig.start();
+      final end = await over;
+      expect(end.ended, EndReason.cancelled);
+      expect(end.audioProblem, contains('no audio session'));
+    });
+  });
+
+  test('diagnostics follow posture, takbir and recitation events', () async {
+    final prayer = generateSyntheticPrayer(SyntheticCase.normal, seed: 7);
+    final rig = Rig(FakePoseEngine(prayer.recording));
+    expect(rig.runner.diagnostics.takbirSeen, isFalse);
+    expect(rig.runner.diagnostics.lastAudioEvent, isNull);
+    final seen = <SessionDiagnostics>[];
+    rig.runner.status.listen((_) => seen.add(rig.runner.diagnostics));
+    final over = lastStatus(rig.runner);
+    await rig.runner.start();
+    await over.timeout(const Duration(seconds: 60));
+    final d = rig.runner.diagnostics;
+    expect(d.takbirSeen, isTrue);
+    expect(d.lastAudioEvent, isNotNull);
+    expect(seen.map((d) => d.lastAudioEvent), contains("Start (rak'ah 1)"));
+    expect(seen.map((d) => d.posture), contains(Posture.prostrating));
+    expect(d.lines.first, startsWith('Posture: '));
+  });
+}
+
+class _FailingPlayer extends FakeRecitationPlayer {
+  @override
+  Future<void> play(RecitationPlan plan) async {
+    throw Exception('Source error: could not open the file');
+  }
 }
