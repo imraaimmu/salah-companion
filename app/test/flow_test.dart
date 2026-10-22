@@ -168,6 +168,7 @@ void main() {
           surahRakah1: 109,
           ayahGapMs: 2500,
           softGlow: true,
+          showTrackingDetails: true,
         ),
       );
       await s.markSetupDone();
@@ -176,6 +177,7 @@ void main() {
       expect(again.surahRakah1, 109);
       expect(again.ayahGapMs, 2500);
       expect(again.softGlow, isTrue);
+      expect(again.showTrackingDetails, isTrue);
       expect(await store().isSetupDone(), isTrue);
     });
 

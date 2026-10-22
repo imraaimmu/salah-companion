@@ -13,7 +13,11 @@ class FakeBackend implements PlaybackBackend {
   final log = <String>[];
   final volumes = <double>[];
   final _completed = StreamController<void>.broadcast();
+  final errorCtrl = StreamController<Object>.broadcast();
   List<TimelineSegment> loaded = const [];
+
+  /// When set, load() throws it.
+  Object? loadError;
   bool disposed = false;
 
   /// When set, stop() waits for it.
@@ -28,6 +32,8 @@ class FakeBackend implements PlaybackBackend {
 
   @override
   Future<void> load(List<TimelineSegment> segments) async {
+    final e = loadError;
+    if (e != null) throw e;
     loaded = segments;
     currentIndex = 0;
     position = Duration.zero;
@@ -58,6 +64,9 @@ class FakeBackend implements PlaybackBackend {
 
   @override
   Stream<void> get completed => _completed.stream;
+
+  @override
+  Stream<Object> get errors => errorCtrl.stream;
 
   @override
   Future<void> dispose() async => disposed = true;
@@ -367,6 +376,57 @@ void main() {
     expect(events, [Interruption.audioFocusLost]);
     expect(refused.isPlaying, isFalse);
     refused.dispose();
+  });
+
+  test('a load error is thrown by play and releases the session', () async {
+    backend.loadError = Exception('Unable to open asset');
+    await expectLater(player.play(plan), throwsA(isA<Exception>()));
+    expect(player.isPlaying, isFalse);
+    expect(sessionActive, [true, false]);
+    expect(backend.log, ['stop']);
+  });
+
+  test('asynchronous backend errors are forwarded as problems', () async {
+    final problems = <Object>[];
+    player.problems.listen(problems.add);
+    backend.errorCtrl.add(Exception('decoder failed'));
+    await pumpEventQueue();
+    expect(problems.single.toString(), contains('decoder failed'));
+  });
+
+  group('bundled audio sources', () {
+    const path = 'assets/audio/placeholder/001001.wav';
+
+    test('Android reads assets in place from the APK', () {
+      expect(
+        androidAssetUri(path).toString(),
+        'file:///android_asset/flutter_assets/assets/audio/placeholder/'
+        '001001.wav',
+      );
+      final src = bundledAudioSource(path, inPlace: true);
+      final uri = src.uri;
+      // Not the asset scheme, which just_audio would copy to a cache dir.
+      expect(uri.scheme, 'file');
+      expect(uri.path, '/android_asset/flutter_assets/$path');
+    });
+
+    test('other platforms keep AudioSource.asset', () {
+      final src = bundledAudioSource(path);
+      expect(src.uri.scheme, 'asset');
+      expect(src.uri.path, '/$path');
+    });
+
+    test('special characters are percent-encoded, segments decode back', () {
+      final uri = androidAssetUri('assets/audio/a b.wav');
+      expect(uri.toString(), endsWith('/a%20b.wav'));
+      expect(uri.pathSegments, [
+        'android_asset',
+        'flutter_assets',
+        'assets',
+        'audio',
+        'a b.wav',
+      ]);
+    });
   });
 
   group('clearAudioAssetCache', () {

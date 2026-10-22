@@ -16,6 +16,7 @@ class Harness {
   final FakeAudioCheck audio;
   final FakeCameraPermission camera = FakeCameraPermission();
   final FakeScreenControl screen = FakeScreenControl();
+  final SoundTest soundTest;
 
   /// The phone's clock; Fajr time by default. Tests may move it.
   DateTime now;
@@ -25,7 +26,9 @@ class Harness {
     bool setupDone = true,
     AudioStatus audio = const AudioStatus(),
     DateTime? now,
+    SoundTest? soundTest,
   }) : now = now ?? DateTime(2026, 10, 20, 5, 30),
+       soundTest = soundTest ?? FakeSoundTest(),
        store = MemorySettingsStore(initial: settings, setupDone: setupDone),
        audio = FakeAudioCheck(audio);
 
@@ -45,6 +48,7 @@ class Harness {
     audioCheck: audio,
     cameraPermission: camera,
     screenControl: screen,
+    soundTest: soundTest,
     clock: () => now,
     child: child,
   );
