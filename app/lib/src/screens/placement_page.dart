@@ -36,6 +36,11 @@ class PlacementPage extends StatefulWidget {
   static String titleFor(Prayer p) =>
       "${p.displayName} · ${p.rakahCount} rak'ahs";
 
+  /// Shown once all checks pass: rak'ah 1 recites only after a detected
+  /// takbir hand raise.
+  static const takbirHint =
+      'Raise your hands clearly for the takbir so the recitation can start';
+
   /// The spoken countdown prompt, naming the prayer.
   static String countdownPrompt(Prayer p, int secs) =>
       'Good. Step onto your mat for ${p.displayName}, '
@@ -338,6 +343,15 @@ class _StatusPanel extends StatelessWidget {
                   ),
                 ),
               ),
+              if (state.allPass) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  PlacementPage.takbirHint,
+                  key: Key('takbir-hint'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: AppColors.textQuiet, fontSize: 14),
+                ),
+              ],
               const SizedBox(height: 16),
               for (final (ok, label, key) in checks)
                 Semantics(

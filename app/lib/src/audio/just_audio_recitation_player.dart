@@ -88,7 +88,9 @@ class JustAudioRecitationPlayer implements RecitationPlayer {
   final Duration fadeStep;
 
   final _interruptions = StreamController<Interruption>.broadcast();
+  final _problems = StreamController<Object>.broadcast();
   StreamSubscription<void>? _completedSub;
+  StreamSubscription<Object>? _errorSub;
   StreamSubscription<Interruption>? _systemSub;
 
   _State _state = _State.idle;
@@ -113,6 +115,9 @@ class JustAudioRecitationPlayer implements RecitationPlayer {
         unawaited(_halt());
       }
     });
+    _errorSub = backend.errors.listen((e) {
+      if (!_problems.isClosed) _problems.add(e);
+    });
     _systemSub = systemInterruptions?.listen(_onInterruption);
   }
 
@@ -129,6 +134,12 @@ class JustAudioRecitationPlayer implements RecitationPlayer {
 
   /// System interruptions, reported after audio has been stopped.
   Stream<Interruption> get interruptions => _interruptions.stream;
+
+  /// Playback errors the platform player reported outside any call (a file
+  /// that cannot be opened or decoded). Errors from a call are thrown by
+  /// that call instead. The session runner shows both as
+  /// `SessionStatus.audioProblem`.
+  Stream<Object> get problems => _problems.stream;
 
   bool get isPlaying => _state == _State.playing;
   bool get isPaused => _state == _State.paused || _state == _State.pausing;
@@ -159,7 +170,17 @@ class JustAudioRecitationPlayer implements RecitationPlayer {
       }
       return done.future;
     }
-    await _backend.load(timeline.segments);
+    try {
+      await _backend.load(timeline.segments);
+    } catch (_) {
+      // The playlist could not be loaded (a missing or unreadable file):
+      // release the audio session and end this play, then report it.
+      if (gen == _generation) {
+        ++_generation;
+        await _halt();
+      }
+      rethrow;
+    }
     if (gen != _generation) return done.future;
     // Through the tracked setter, so a later fade starts from the real
     // volume (after a fadeOut or pause the tracked volume is 0).
@@ -228,7 +249,9 @@ class JustAudioRecitationPlayer implements RecitationPlayer {
     _complete();
     _completedSub?.cancel();
     _systemSub?.cancel();
+    _errorSub?.cancel();
     _interruptions.close();
+    _problems.close();
     unawaited(_backend.stop().whenComplete(_backend.dispose));
   }
 

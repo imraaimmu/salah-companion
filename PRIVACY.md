@@ -10,8 +10,9 @@ Salah Companion collects nothing.
 - **What is stored:** only your settings (chosen surahs, Auto rotation position,
   opening-dua length, pace and volume), on your phone. Android auto-backup is turned off
   for the app.
-- **Temporary audio cache:** to play the recitation, the audio player keeps temporary
-  copies of the app's own bundled audio files in the app's cache folder. They are cleared
+- **Temporary audio cache:** on Android the recitation is played straight from the app's
+  own bundled audio files, with no copies. On other platforms the audio player keeps
+  temporary copies of those bundled files in the app's cache folder; they are cleared
   every session (when the app starts and when each prayer session ends) and never contain
   any of your data.
 - **Microphone:** not used.

@@ -4,6 +4,7 @@
 library;
 
 import 'dart:async';
+import 'dart:io' show Platform;
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
@@ -33,8 +34,38 @@ abstract interface class PlaybackBackend {
   /// Fires when the last playlist entry finishes.
   Stream<void> get completed;
 
+  /// Playback errors the platform player reports on its own (a file that
+  /// cannot be opened or decoded), outside any call. Never swallowed: the
+  /// recitation player forwards them so they reach the session status.
+  Stream<Object> get errors;
+
   Future<void> dispose();
 }
+
+/// Whether bundled audio is played straight from the APK (Android), with
+/// no temporary copy (see [bundledAudioSource]).
+final bool playsBundledAssetsInPlace = !kIsWeb && Platform.isAndroid;
+
+/// The URI under which Android's media player reads the bundled Flutter
+/// asset [assetPath] directly from the APK: Flutter packs assets under
+/// `assets/flutter_assets/` in the APK, and ExoPlayer's DefaultDataSource
+/// reads `file:///android_asset/...` URIs with its AssetDataSource.
+///
+/// Not `asset:///...`: just_audio's Dart side treats the `asset` scheme like
+/// [AudioSource.asset] and copies the file into a cache directory first
+/// (through path_provider). That copy is exactly what this avoids: it is
+/// slow, can leave a truncated file behind, and path_provider_android calls
+/// through JNI, which is a risk in shrunk release builds.
+Uri androidAssetUri(String assetPath) =>
+    Uri(scheme: 'file', path: '/android_asset/flutter_assets/$assetPath');
+
+/// The just_audio source for the bundled asset [assetPath]: read in place
+/// on Android ([inPlace], see [androidAssetUri]), or through
+/// [AudioSource.asset] (a cached copy) elsewhere.
+UriAudioSource bundledAudioSource(String assetPath, {bool inPlace = false}) =>
+    inPlace
+    ? AudioSource.uri(androidAssetUri(assetPath))
+    : AudioSource.asset(assetPath);
 
 Future<void> _pendingCacheClear = Future<void>.value();
 
@@ -46,7 +77,11 @@ Future<void> _pendingCacheClear = Future<void>.value();
 /// short (app killed mid-write) would be played truncated forever. Clearing
 /// the cache at app start and after each session bounds that to one
 /// session. The cache only ever holds bundled audio, never user data
-/// (PRIVACY.md). Errors (no cache yet, no platform) are ignored.
+/// (PRIVACY.md). Errors (no cache yet, no platform) are logged and
+/// otherwise ignored.
+///
+/// Only needed where assets are copied: on Android the backend plays them
+/// in place ([playsBundledAssetsInPlace]) and nothing calls this.
 ///
 /// [JustAudioBackend.load] waits for a clear still in progress, so a new
 /// session never reads a file that is being deleted.
@@ -71,29 +106,52 @@ class JustAudioBackend implements PlaybackBackend {
   static const defaultSilenceAsset = 'assets/audio/silence_10s.wav';
 
   final String silenceAsset;
-  final AudioPlayer _player;
 
-  JustAudioBackend({this.silenceAsset = defaultSilenceAsset})
-    : _player = AudioPlayer(
-        // The recitation player and the session controller own these.
-        handleInterruptions: false,
-        handleAudioSessionActivation: false,
-        // Local assets only; never start just_audio's localhost proxy.
-        useProxyForRequestHeaders: false,
-      );
+  /// Play bundled assets in place (Android) instead of from cached copies.
+  final bool assetsInPlace;
+  final AudioPlayer _player;
+  final _errors = StreamController<Object>.broadcast();
+  StreamSubscription<PlaybackEvent>? _eventSub;
+
+  JustAudioBackend({
+    this.silenceAsset = defaultSilenceAsset,
+    bool? assetsInPlace,
+  }) : assetsInPlace = assetsInPlace ?? playsBundledAssetsInPlace,
+       _player = AudioPlayer(
+         // The recitation player and the session controller own these.
+         handleInterruptions: false,
+         handleAudioSessionActivation: false,
+         // Local assets only; never start just_audio's localhost proxy.
+         useProxyForRequestHeaders: false,
+       ) {
+    // just_audio reports playback failures as errors on this stream; with
+    // no listener they would vanish.
+    _eventSub = _player.playbackEventStream.listen(
+      (_) {},
+      onError: (Object e, StackTrace _) => _report(e),
+    );
+  }
+
+  void _report(Object e) {
+    debugPrint('JustAudioBackend: playback error: $e');
+    if (!_errors.isClosed) _errors.add(e);
+  }
+
+  @override
+  Stream<Object> get errors => _errors.stream;
 
   @override
   Future<void> load(List<TimelineSegment> segments) async {
-    await _pendingCacheClear;
+    if (!assetsInPlace) await _pendingCacheClear;
     final sources = [
       for (final s in segments)
         if (s.isSilence)
           ClippingAudioSource(
-            child: AudioSource.asset(silenceAsset),
+            child: bundledAudioSource(silenceAsset, inPlace: assetsInPlace),
             end: s.duration,
           )
         else
-          AudioSource.asset(s.clip!.assetPath),
+          bundledAudioSource(s.clip!.assetPath, inPlace: assetsInPlace),
     ];
     await _player.setAudioSources(
       sources,
@@ -104,8 +162,9 @@ class JustAudioBackend implements PlaybackBackend {
 
   @override
   Future<void> play() async {
-    // just_audio's play() completes only when playback stops; don't await.
-    unawaited(_player.play());
+    // just_audio's play() completes only when playback stops; don't await,
+    // but never lose its error.
+    unawaited(_player.play().catchError(_report));
   }
 
   @override
@@ -135,10 +194,13 @@ class JustAudioBackend implements PlaybackBackend {
   @override
   Future<void> dispose() async {
     try {
+      await _eventSub?.cancel();
       await _player.dispose();
     } finally {
-      // The session is over: drop the temporary asset copies.
-      await clearAudioAssetCache();
+      await _errors.close();
+      // The session is over: drop the temporary asset copies (there are
+      // none when assets play in place).
+      if (!assetsInPlace) await clearAudioAssetCache();
     }
   }
 }
