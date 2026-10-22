@@ -227,6 +227,52 @@ void main() {
       expect(c.current.reciting, isFalse);
     });
 
+    test('a planner error is shown as the audio problem', () async {
+      final player = FakeRecitationPlayer();
+      final c = SessionController(
+          player, _ThrowingPlanner(), settings, const Stream.empty());
+      final statuses = <SessionStatus>[];
+      c.status.listen(statuses.add);
+      c.handle(const StartRecitation(0, rakah: 1));
+      await c.idle;
+      await pump();
+      expect(c.current.audioProblem, isNotNull);
+      expect(statuses.last.audioProblem, c.current.audioProblem);
+    });
+
+    test('a failing play reaches the status as the audio problem', () async {
+      final player = _FailingPlayer();
+      final c = SessionController(
+          player, FakeRecitationPlanner(), settings, const Stream.empty());
+      final statuses = <SessionStatus>[];
+      c.status.listen(statuses.add);
+      c.handle(const StartRecitation(0, rakah: 1));
+      await c.idle;
+      await pump();
+      expect(c.errors.single, isA<Exception>());
+      expect(c.current.audioProblem, 'Source error: asset not found');
+      expect(c.current.reciting, isFalse);
+      expect(statuses.last.audioProblem, 'Source error: asset not found');
+      expect(c.isOver, isFalse); // the session goes on
+    });
+
+    test('reportAudioProblem shows a problem; ignored once over', () async {
+      final r = Rig();
+      r.c.reportAudioProblem(StateError('decoder failed'));
+      await pump();
+      expect(r.c.current.audioProblem, 'Bad state: decoder failed');
+      expect(r.statuses.last.audioProblem, 'Bad state: decoder failed');
+      expect(r.c.errors, hasLength(1));
+      r.c.handle(const SessionEnded(1, reason: EndReason.completed));
+      r.c.reportAudioProblem('late');
+      expect(r.c.current.audioProblem, 'Bad state: decoder failed');
+    });
+
+    test('describeAudioProblem trims and shortens', () {
+      expect(describeAudioProblem(Exception('x')), 'x');
+      expect(describeAudioProblem('a' * 400).length, 300);
+    });
+
     test('run applies a stream in order and returns at the end', () async {
       final r = Rig();
       await r.c.run(Stream.fromIterable(const [
@@ -532,4 +578,12 @@ class _ThrowingPlanner implements RecitationPlanner {
 
   @override
   (int, int) surahsFor(SessionSettings settings) => (93, 94);
+}
+
+class _FailingPlayer extends FakeRecitationPlayer {
+  @override
+  Future<void> play(RecitationPlan plan) async {
+    await super.stopNow();
+    throw Exception('Source error: asset not found');
+  }
 }
