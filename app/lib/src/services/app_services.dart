@@ -14,6 +14,9 @@ class AppServices extends InheritedWidget {
   final CameraPermission cameraPermission;
   final ScreenControl screenControl;
 
+  /// Settings, "Test sound".
+  final SoundTest soundTest;
+
   /// Placement countdown length (spec: 5 s).
   final Duration countdown;
 
@@ -34,6 +37,7 @@ class AppServices extends InheritedWidget {
     required this.audioCheck,
     required this.cameraPermission,
     required this.screenControl,
+    this.soundTest = const UnavailableSoundTest(),
     this.countdown = const Duration(seconds: 5),
     this.summaryTimeout = const Duration(seconds: 30),
     this.clock = DateTime.now,

@@ -6,7 +6,8 @@ import 'package:salah_core/salah_core.dart';
 
 import '../audio/asset_audio_catalog.dart';
 import '../audio/just_audio_recitation_player.dart';
-import '../audio/playback_backend.dart' show clearAudioAssetCache;
+import '../audio/playback_backend.dart'
+    show clearAudioAssetCache, playsBundledAssetsInPlace;
 import '../pose/android_pose_engine.dart';
 import '../pose/pose_preview.dart';
 import 'app_services.dart';
@@ -17,6 +18,7 @@ import 'pose_session_runner.dart';
 import 'screen_control.dart';
 import 'seams.dart';
 import 'settings_stores.dart';
+import 'sound_test.dart';
 
 /// Real services: CameraX + MediaPipe pose engine, the salah_core pipeline,
 /// just_audio recitation from the bundled catalog, a settings file
@@ -30,24 +32,34 @@ class RealServices {
   final ContentRepository content;
   final SettingsStore settingsStore;
 
-  RealServices._(this.engine, this.content, this.settingsStore);
+  /// Settings, "Test sound": Al-Fatiha 1:1 through the session's player.
+  final SoundTest soundTest;
+
+  RealServices._(this.engine, this.content, this.settingsStore, this.soundTest);
 
   /// Loads the audio catalog (a bundled asset) and builds the services.
   static Future<RealServices> load() async {
     // Temporary copies of bundled audio from an earlier run (possibly cut
-    // short when the app was killed) are never reused.
-    await clearAudioAssetCache();
+    // short when the app was killed) are never reused. On Android the audio
+    // plays straight from the APK, so there are no copies (and no
+    // path_provider call at start-up).
+    if (!playsBundledAssetsInPlace) await clearAudioAssetCache();
     final catalog = await AssetAudioCatalog.load();
     return RealServices._(
       AndroidPoseEngine(),
       ContentRepository(catalog),
       ResilientSettingsStore(FileSettingsStore.android()),
+      RecitationSoundTest.fromCatalog(
+        createPlayer: _createPlayer,
+        catalog: catalog,
+        placeholder: catalog.placeholder,
+      ),
     );
   }
 
   static Future<PlayerHandle> _createPlayer() async {
     final p = await JustAudioRecitationPlayer.create();
-    return (player: p, interruptions: p.interruptions);
+    return (player: p, interruptions: p.interruptions, problems: p.problems);
   }
 
   AppServices wrap({required Widget child}) => AppServices(
@@ -73,6 +85,7 @@ class RealServices {
     audioCheck: DeviceAudioCheck(),
     cameraPermission: EngineCameraPermission(engine),
     screenControl: const DeviceScreenControl(),
+    soundTest: soundTest,
     child: child,
   );
 }

@@ -62,10 +62,16 @@ class _SettingsPageState extends State<SettingsPage> {
                 SoftGlowToggle(settings: s, onChanged: _change),
                 const SectionTitle('Audio'),
                 AudioCheckPanel(audioCheck: services.audioCheck),
+                SoundTestPanel(
+                  soundTest: services.soundTest,
+                  audioCheck: services.audioCheck,
+                ),
                 const QuietNote(
                   doNotDisturbNote,
                   icon: Icons.do_not_disturb_on_outlined,
                 ),
+                const SectionTitle('Testing'),
+                TrackingDetailsToggle(settings: s, onChanged: _change),
               ],
             ),
     );

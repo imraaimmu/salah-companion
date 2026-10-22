@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:salah_core/salah_core.dart';
@@ -12,6 +13,11 @@ import 'summary_page.dart';
 /// Prayer (#21): pure black, one tiny dim dot (steady when tracking, amber
 /// when lost), no text, no animation except the optional soft glow. Long-
 /// press anywhere for 1.5 s to end, after a small confirmation.
+///
+/// For testing only, [SessionSettings.showTrackingDetails] adds small dim
+/// text at the bottom ([SessionDiagnostics.lines] of a runner that is a
+/// [SessionDiagnosticsSource]), refreshed at most every
+/// [trackingDetailsInterval]. Off (the default), the screen is unchanged.
 class PrayerPage extends StatefulWidget {
   final SessionRunner runner;
   final SessionSettings settings;
@@ -30,6 +36,8 @@ class PrayerPage extends StatefulWidget {
   static const longPressDuration = Duration(milliseconds: 1500);
   static const dotTracking = Color(0xFF2A2A2A);
   static const dotLost = Color(0xFF5C3F00);
+  static const trackingDetailsInterval = Duration(milliseconds: 250);
+  static const trackingDetailsColor = Color(0xFF4A4A4A);
 
   @override
   State<PrayerPage> createState() => _PrayerPageState();
@@ -143,6 +151,12 @@ class _PrayerPageState extends State<PrayerPage> {
   @override
   Widget build(BuildContext context) {
     final tracking = _status.tracking;
+    final runner = widget.runner;
+    final details =
+        widget.settings.showTrackingDetails &&
+            runner is SessionDiagnosticsSource
+        ? runner as SessionDiagnosticsSource
+        : null;
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -176,6 +190,7 @@ class _PrayerPageState extends State<PrayerPage> {
               fit: StackFit.expand,
               children: [
                 if (widget.settings.softGlow) const _SoftGlow(),
+                if (details != null) _TrackingDetails(source: details),
                 Align(
                   alignment: const Alignment(0, 0.85),
                   child: Container(
@@ -197,6 +212,58 @@ class _PrayerPageState extends State<PrayerPage> {
       ),
     );
   }
+}
+
+/// Small dim lines at the bottom of the prayer screen, polled from [source]
+/// every [PrayerPage.trackingDetailsInterval] (rebuilt only on change).
+class _TrackingDetails extends StatefulWidget {
+  final SessionDiagnosticsSource source;
+  const _TrackingDetails({required this.source});
+
+  @override
+  State<_TrackingDetails> createState() => _TrackingDetailsState();
+}
+
+class _TrackingDetailsState extends State<_TrackingDetails> {
+  late List<String> _lines = widget.source.diagnostics.lines;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(PrayerPage.trackingDetailsInterval, (_) {
+      final next = widget.source.diagnostics.lines;
+      if (mounted && !listEquals(next, _lines)) setState(() => _lines = next);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+    child: Align(
+      alignment: Alignment.bottomLeft,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+          child: Text(
+            _lines.join('\n'),
+            key: const Key('tracking-details'),
+            textDirection: TextDirection.ltr,
+            style: const TextStyle(
+              color: PrayerPage.trackingDetailsColor,
+              fontSize: 11,
+              height: 1.35,
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 }
 
 /// A slow, very dim breathing circle (optional; off by default).

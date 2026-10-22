@@ -12,13 +12,17 @@ import 'seams.dart';
 
 export 'latest_value.dart';
 
-/// A session whose statuses the test pushes with [emit].
-class FakeSessionRunner implements SessionRunner {
+/// A session whose statuses the test pushes with [emit], and whose
+/// [diagnostics] it sets directly.
+class FakeSessionRunner implements SessionRunner, SessionDiagnosticsSource {
   final SessionSettings settings;
   final Prayer prayer;
   final _status = LatestValue<SessionStatus>();
   int startCalls = 0;
   int cancelCalls = 0;
+
+  @override
+  SessionDiagnostics diagnostics = const SessionDiagnostics();
 
   FakeSessionRunner([
     this.settings = const SessionSettings(),
@@ -202,4 +206,24 @@ List<Landmark> standingSkeleton({double conf = 0.9}) {
   set(LandmarkIndex.leftFootIndex, 266, 564);
   set(LandmarkIndex.rightFootIndex, 268, 564);
   return pts;
+}
+
+/// A [SoundTest] with a fixed outcome: null plays fine, a string fails.
+class FakeSoundTest implements SoundTest {
+  String? problem;
+  @override
+  bool placeholder;
+  int runs = 0;
+
+  /// When set, [run] waits for it.
+  Completer<void>? gate;
+
+  FakeSoundTest({this.problem, this.placeholder = true});
+
+  @override
+  Future<String?> run() async {
+    runs++;
+    await gate?.future;
+    return problem;
+  }
 }
