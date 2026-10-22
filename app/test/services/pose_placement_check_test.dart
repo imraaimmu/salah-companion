@@ -129,6 +129,23 @@ void main() {
     expect(feed(ev(), wrongEdge).floorSpaceOk, isFalse);
   });
 
+  test('facing the camera says to turn sideways', () {
+    // Shoulders and hips spread wide, as seen from the front.
+    final p = [...farPerson()];
+    final sh = p[LandmarkIndex.leftShoulder];
+    final hip = p[LandmarkIndex.leftHip];
+    p[LandmarkIndex.leftShoulder] = Landmark(sh.x - 60, sh.y, 0, sh.conf);
+    p[LandmarkIndex.rightShoulder] = Landmark(sh.x + 60, sh.y, 0, sh.conf);
+    p[LandmarkIndex.leftHip] = Landmark(hip.x - 40, hip.y, 0, hip.conf);
+    p[LandmarkIndex.rightHip] = Landmark(hip.x + 40, hip.y, 0, hip.conf);
+    final s = feed(ev(), p);
+    expect(s.allPass, isFalse);
+    expect(
+      s.message,
+      'Turn sideways: the phone should be at your left or right',
+    );
+  });
+
   test('noisy foot points cannot flip the facing direction', () {
     // Heel and toe swapped (a common MediaPipe glitch) on every frame: the
     // nose and ear still say "facing right", so the space is measured in

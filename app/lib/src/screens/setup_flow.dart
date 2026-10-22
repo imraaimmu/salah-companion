@@ -180,8 +180,9 @@ class _SetupFlowState extends State<SetupFlow> {
             icon: Icons.stay_current_portrait,
           ),
           QuietNote(
-            'Put it 2 to 3 metres away, to your side, so it sees you '
-            'side-on, with space in front of you for sujood.',
+            'Put it 2 to 3 metres away at your left or right, not in front '
+            'of you: you face the qibla and the phone sees you from the side, '
+            'with space ahead of you for sujood.',
             icon: Icons.straighten,
           ),
           QuietNote(

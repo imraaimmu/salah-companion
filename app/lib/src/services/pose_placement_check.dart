@@ -177,9 +177,15 @@ class PlacementEvaluator {
         _floorHistory.add((f.tMs, height > 0 && front >= floorFactor * height));
       }
       _floorHistory.removeWhere((e) => f.tMs - e.$1 > 1000);
-      floorSpaceOk = _floorHistory.any((e) => e.$2);
+      // Facing the camera, the space ahead can't be judged (and the prayer
+      // can't be followed well), so the check stays open until side-on.
+      final frontOn = _facesCamera(person, seen);
+      if (frontOn) _floorHistory.clear();
+      floorSpaceOk = !frontOn && _floorHistory.any((e) => e.$2);
       if (mean < minMeanConf) {
         message = 'Move the phone back';
+      } else if (frontOn) {
+        message = 'Turn sideways: the phone should be at your left or right';
       } else if (reading.posture != Posture.standing) {
         message = 'Stand up straight, side-on to the phone';
       } else if (facing == 0) {
@@ -256,6 +262,21 @@ class PlacementEvaluator {
   }
 
   /// +1 facing right (towards larger x), -1 facing left, 0 unknown.
+  /// True when the user faces the camera (or has their back to it) instead
+  /// of standing side-on: both shoulders clearly seen and far apart compared
+  /// with the torso. Side-on, the shoulders overlap (width well under half
+  /// the shoulder-hip length); facing the camera they are about as wide as
+  /// the torso is long.
+  static bool _facesCamera(List<Landmark> p, bool Function(Landmark) seen) {
+    final ls = p[LandmarkIndex.leftShoulder],
+        rs = p[LandmarkIndex.rightShoulder];
+    final lh = p[LandmarkIndex.leftHip], rh = p[LandmarkIndex.rightHip];
+    if (!(seen(ls) && seen(rs) && seen(lh) && seen(rh))) return false;
+    final width = (ls.x - rs.x).abs();
+    final torso = ((lh.y + rh.y) / 2 - (ls.y + rs.y) / 2).abs();
+    return torso > 0 && width > 0.55 * torso;
+  }
+
   /// Majority of the last [facingVotes] facing readings (0 = unknown).
   int _votedFacing(int now) {
     if (now != 0) {
