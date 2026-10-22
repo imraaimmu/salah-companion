@@ -125,8 +125,10 @@ void main() {
         ameenGapMs: 800,
         softGlow: true,
         camera: CameraLens.front,
+        showTrackingDetails: true,
       );
       final again = SessionSettings.fromJson(s.toJson());
+      expect(again.showTrackingDetails, isTrue);
       expect(again.toJson(), s.toJson());
       expect(again.autoPairDate, '2026-10-20');
       expect(again.camera, CameraLens.front);
@@ -174,6 +176,20 @@ void main() {
       expect(s.autoPairDate, isNull);
       expect(s.toJson().containsKey('autoPairDate'), isFalse);
       expect(s.camera, CameraLens.rear);
+      expect(s.showTrackingDetails, isFalse);
+    });
+
+    test('showTrackingDetails defaults to off; copyWith changes it', () {
+      expect(const SessionSettings().showTrackingDetails, isFalse);
+      expect(const SessionSettings().toJson()['showTrackingDetails'], false);
+      expect(
+          SessionSettings.fromJson(const {'showTrackingDetails': 'yes'})
+              .showTrackingDetails,
+          isFalse);
+      final on = const SessionSettings().copyWith(showTrackingDetails: true);
+      expect(on.showTrackingDetails, isTrue);
+      expect(on.copyWith(ayahGapMs: 0).showTrackingDetails, isTrue);
+      expect(on.forDay(DateTime(2026, 10, 21)).showTrackingDetails, isTrue);
     });
 
     test('an invalid autoPairDate reads as null', () {

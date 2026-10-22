@@ -46,6 +46,12 @@ class SessionSettings {
   /// Settings saved before this field existed read as rear.
   final CameraLens camera;
 
+  /// Show small dim tracking details (posture, state, audio events and
+  /// problems) at the bottom of the prayer screen, for testing. Off by
+  /// default (the screen stays pure black). Settings saved before this
+  /// field existed read as false.
+  final bool showTrackingDetails;
+
   const SessionSettings({
     this.surahRakah1 = 93,
     this.surahRakah2 = 94,
@@ -58,6 +64,7 @@ class SessionSettings {
     this.ameenGapMs = 1500,
     this.softGlow = false,
     this.camera = CameraLens.rear,
+    this.showTrackingDetails = false,
   });
 
   SessionSettings copyWith({
@@ -72,6 +79,7 @@ class SessionSettings {
     int? ameenGapMs,
     bool? softGlow,
     CameraLens? camera,
+    bool? showTrackingDetails,
   }) =>
       SessionSettings(
         surahRakah1: surahRakah1 ?? this.surahRakah1,
@@ -85,6 +93,7 @@ class SessionSettings {
         ameenGapMs: ameenGapMs ?? this.ameenGapMs,
         softGlow: softGlow ?? this.softGlow,
         camera: camera ?? this.camera,
+        showTrackingDetails: showTrackingDetails ?? this.showTrackingDetails,
       );
 
   /// The calendar day of [t] as `YYYY-MM-DD` (in [t]'s own time zone).
@@ -128,6 +137,7 @@ class SessionSettings {
         'ameenGapMs': ameenGapMs,
         'softGlow': softGlow,
         'camera': camera.name,
+        'showTrackingDetails': showTrackingDetails,
       };
 
   /// Unknown or invalid fields fall back to defaults.
@@ -147,6 +157,7 @@ class SessionSettings {
       ameenGapMs: i('ameenGapMs', d.ameenGapMs),
       softGlow: b('softGlow', d.softGlow),
       camera: _lens(j['camera']),
+      showTrackingDetails: b('showTrackingDetails', d.showTrackingDetails),
     );
   }
 
@@ -197,6 +208,11 @@ class SessionStatus {
   final EndReason? ended;
   final Interruption? interruption;
 
+  /// The latest audio playback problem (a player or planner error), in
+  /// words, or null if none happened. The session goes on without audio;
+  /// this only makes the failure visible. Once set it stays set.
+  final String? audioProblem;
+
   const SessionStatus({
     this.state = PrayerState.waiting,
     this.rakah = 0,
@@ -205,6 +221,7 @@ class SessionStatus {
     this.paused = false,
     this.ended,
     this.interruption,
+    this.audioProblem,
   });
 
   bool get isOver => ended != null;
@@ -217,6 +234,7 @@ class SessionStatus {
     bool? paused,
     EndReason? ended,
     Interruption? interruption,
+    String? audioProblem,
   }) =>
       SessionStatus(
         state: state ?? this.state,
@@ -226,10 +244,12 @@ class SessionStatus {
         paused: paused ?? this.paused,
         ended: ended ?? this.ended,
         interruption: interruption ?? this.interruption,
+        audioProblem: audioProblem ?? this.audioProblem,
       );
 
   @override
   String toString() => 'SessionStatus($state, rakah $rakah, '
       'tracking $tracking, reciting $reciting, paused $paused, '
-      'ended $ended, interruption $interruption)';
+      'ended $ended, interruption $interruption'
+      '${audioProblem == null ? '' : ', audioProblem $audioProblem'})';
 }

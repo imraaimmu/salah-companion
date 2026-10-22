@@ -12,6 +12,15 @@ import 'prayer.dart';
 import 'recitation.dart';
 import 'session.dart';
 
+/// [problem] in words for [SessionStatus.audioProblem]: its `toString()`,
+/// without a leading "Exception: ", shortened to 300 characters.
+String describeAudioProblem(Object problem) {
+  var text = problem.toString().trim();
+  if (text.startsWith('Exception: ')) text = text.substring(11);
+  if (text.isEmpty) text = problem.runtimeType.toString();
+  return text.length > 300 ? '${text.substring(0, 299)}…' : text;
+}
+
 /// A change reported by [FrameRateMonitor].
 enum FrameRateChange { low, recovered }
 
@@ -193,8 +202,9 @@ class SessionController {
   /// Built-in frame-rate monitor, when constructed with `frames`.
   final FrameRateMonitor? frameRate;
 
-  /// Errors thrown by the planner or the player (the session goes on,
-  /// silently). For diagnosis.
+  /// Errors thrown by the planner or the player, and problems reported with
+  /// [reportAudioProblem]. The session goes on, but each one also sets
+  /// [SessionStatus.audioProblem], so a failure is never silent.
   final List<Object> errors = [];
 
   final StreamController<SessionStatus> _statusCtrl =
@@ -363,6 +373,18 @@ class SessionController {
     if (!_statusCtrl.isClosed) await _statusCtrl.close();
   }
 
+  /// Reports an audio problem that did not come from a player call (for
+  /// example an asynchronous playback error from the platform player): it
+  /// is added to [errors] and shown as [SessionStatus.audioProblem]. The
+  /// session goes on. Ignored after the session ended.
+  void reportAudioProblem(Object problem) => _recordError(problem);
+
+  void _recordError(Object e) {
+    errors.add(e);
+    if (isOver) return;
+    _emit(_status.copyWith(audioProblem: describeAudioProblem(e)));
+  }
+
   bool get _trackingOk => _machineTracking && !_lowFps;
 
   void _start(int rakah) {
@@ -372,7 +394,7 @@ class SessionController {
     try {
       plan = planner.planFor(rakah, settings);
     } catch (e) {
-      errors.add(e);
+      _recordError(e);
       return;
     }
     if (_openRakah != null) _enqueue(player.fadeOut); // defensive
@@ -381,7 +403,7 @@ class SessionController {
     final token = ++_playToken;
     _enqueue(() {
       player.play(plan).then((_) => _playEnded(token), onError: (Object e) {
-        errors.add(e);
+        _recordError(e);
         _playEnded(token);
       });
       return Future<void>.value();
@@ -417,10 +439,10 @@ class SessionController {
     Future<void> stop;
     try {
       stop = player.stopNow().then((_) {}, onError: (Object e) {
-        errors.add(e);
+        _recordError(e);
       });
     } catch (e) {
-      errors.add(e);
+      _recordError(e);
       stop = Future<void>.value();
     }
     _tail = Future.wait([_tail, stop]).then((_) {});
@@ -433,7 +455,7 @@ class SessionController {
       try {
         await call();
       } catch (e) {
-        errors.add(e);
+        _recordError(e);
       }
     });
   }
@@ -446,7 +468,8 @@ class SessionController {
         s.reciting == o.reciting &&
         s.paused == o.paused &&
         s.ended == o.ended &&
-        s.interruption == o.interruption) {
+        s.interruption == o.interruption &&
+        s.audioProblem == o.audioProblem) {
       return;
     }
     _status = s;
