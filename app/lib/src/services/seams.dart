@@ -173,3 +173,87 @@ abstract interface class ScreenControl {
   Future<void> enterPrayerMode();
   Future<void> exitPrayerMode();
 }
+
+/// A snapshot of what the session pipeline sees, for the optional tracking
+/// details on the prayer screen (Settings, "Show tracking details during
+/// prayer"). Text only; nothing is recorded or stored.
+class SessionDiagnostics {
+  /// The smoothed posture (what the state machine acts on).
+  final Posture posture;
+
+  /// The classifier's raw posture for the latest frame.
+  final Posture rawPosture;
+
+  /// Whether a person is in the latest frame.
+  final bool personSeen;
+  final PrayerState state;
+  final int rakah;
+  final bool tracking;
+
+  /// Whether a takbir hand raise was detected in this session (rak'ah 1
+  /// recites only after one).
+  final bool takbirSeen;
+
+  /// The latest recitation event, e.g. "Start (rak'ah 1)", or null.
+  final String? lastAudioEvent;
+
+  /// The latest audio problem in words, or null.
+  final String? audioProblem;
+
+  /// The latest interruption, or null.
+  final Interruption? interruption;
+
+  const SessionDiagnostics({
+    this.posture = Posture.unknown,
+    this.rawPosture = Posture.unknown,
+    this.personSeen = false,
+    this.state = PrayerState.waiting,
+    this.rakah = 0,
+    this.tracking = true,
+    this.takbirSeen = false,
+    this.lastAudioEvent,
+    this.audioProblem,
+    this.interruption,
+  });
+
+  /// The lines shown on the prayer screen.
+  List<String> get lines => [
+    'Posture: ${posture.name} (raw ${rawPosture.name})'
+        '${personSeen ? '' : ', no person'}',
+    'State: ${state.name}, rak\'ah $rakah'
+        '${tracking ? '' : ', tracking lost'}',
+    'Takbir seen: ${takbirSeen ? 'yes' : 'no'}',
+    'Audio: ${lastAudioEvent ?? 'no event yet'}',
+    if (interruption != null) 'Interruption: ${interruption!.name}',
+    if (audioProblem != null) 'Audio problem: $audioProblem',
+  ];
+}
+
+/// A session that can report [SessionDiagnostics]. The prayer screen polls
+/// [diagnostics] (at most 4 times a second) only when the user turned the
+/// tracking details on.
+abstract interface class SessionDiagnosticsSource {
+  SessionDiagnostics get diagnostics;
+}
+
+/// Settings, "Test sound": plays a short sample through the same recitation
+/// player, audio backend and audio session configuration as a prayer.
+abstract interface class SoundTest {
+  /// Whether the bundled audio is placeholder tones (no recitation yet).
+  bool get placeholder;
+
+  /// Plays the sample for a few seconds. Completes with null when it played
+  /// without any reported error, or with the problem in words.
+  Future<String?> run();
+}
+
+/// A [SoundTest] for builds without real audio (demo mode).
+class UnavailableSoundTest implements SoundTest {
+  const UnavailableSoundTest();
+
+  @override
+  bool get placeholder => true;
+
+  @override
+  Future<String?> run() async => 'Sound test is not available in demo mode.';
+}

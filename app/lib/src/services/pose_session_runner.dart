@@ -14,10 +14,13 @@ import 'latest_value.dart';
 import 'seams.dart';
 
 /// A recitation player plus the system interruptions it reports
-/// (headphones unplugged, audio focus lost).
+/// (headphones unplugged, audio focus lost) and, if it has any, the
+/// playback errors it reports outside a call ([problems]; shown as
+/// `SessionStatus.audioProblem`).
 typedef PlayerHandle = ({
   RecitationPlayer player,
   Stream<Interruption> interruptions,
+  Stream<Object>? problems,
 });
 
 /// Creates the player for one session (it is disposed when the session
@@ -88,7 +91,14 @@ bool appIsVisibleNow() {
 ///   status is published: the Auto pair advances on the first completed
 ///   prayer of a new calendar day and then stays for the rest of that day.
 /// * At the end the camera is released and the player is disposed.
-class PoseSessionRunner implements SessionRunner {
+/// * Audio errors are never silent: errors thrown by player calls and the
+///   player's [PlayerHandle.problems] become `SessionStatus.audioProblem`
+///   (and are logged); a player that cannot be created ends the session
+///   with that problem.
+/// * [diagnostics] is a cheap snapshot of the pipeline (posture, state,
+///   takbir, the last recitation event and audio problem) for the optional
+///   tracking details on the prayer screen.
+class PoseSessionRunner implements SessionRunner, SessionDiagnosticsSource {
   final SessionSettings settings;
 
   /// The prayer the user chose; the state machine follows it.
@@ -137,6 +147,13 @@ class PoseSessionRunner implements SessionRunner {
   bool _cancelRequested = false;
   bool _ending = false;
 
+  // Diagnostics (see [diagnostics]).
+  Posture _posture = Posture.unknown;
+  Posture _rawPosture = Posture.unknown;
+  bool _personSeen = false;
+  bool _takbirSeen = false;
+  String? _lastAudioEvent;
+
   PoseSessionRunner({
     required this.settings,
     this.prayer = Prayer.fajr,
@@ -169,6 +186,23 @@ class PoseSessionRunner implements SessionRunner {
   @override
   Stream<SessionStatus> get status => _status.stream;
 
+  @override
+  SessionDiagnostics get diagnostics {
+    final s = _controller?.current ?? _status.latest ?? const SessionStatus();
+    return SessionDiagnostics(
+      posture: _posture,
+      rawPosture: _rawPosture,
+      personSeen: _personSeen,
+      state: s.state,
+      rakah: s.rakah,
+      tracking: s.tracking,
+      takbirSeen: _takbirSeen,
+      lastAudioEvent: _lastAudioEvent,
+      audioProblem: s.audioProblem,
+      interruption: s.interruption,
+    );
+  }
+
   /// The controller, once [start] created it (for tests and diagnostics).
   @visibleForTesting
   SessionController? get controller => _controller;
@@ -200,7 +234,12 @@ class PoseSessionRunner implements SessionRunner {
       handle = await createPlayer();
     } catch (e) {
       debugPrint('PoseSessionRunner: no player: $e');
-      await _finishWithout(Interruption.audioFocusLost);
+      await _finishWithout(
+        Interruption.audioFocusLost,
+        audioProblem:
+            'Could not start the audio player: '
+            '${describeAudioProblem(e)}',
+      );
       return;
     }
     _player = handle.player;
@@ -222,6 +261,15 @@ class PoseSessionRunner implements SessionRunner {
     _controller = controller;
     _subs.add(controller.status.listen(_onStatus));
     _subs.add(handle.interruptions.listen(_interrupts.add));
+    final problems = handle.problems;
+    if (problems != null) {
+      _subs.add(
+        problems.listen((e) {
+          debugPrint('PoseSessionRunner: audio problem: $e');
+          controller.reportAudioProblem(e);
+        }),
+      );
+    }
     final early = _earlyInterruption;
     if (early != null) {
       _interrupts.add(early);
@@ -269,14 +317,38 @@ class PoseSessionRunner implements SessionRunner {
     if (c == null || c.isOver) return;
     _frames.add(f); // FrameRateMonitor first (synchronous).
     if (c.isOver) return;
-    final events = machine.add(smoother.add(classifier.classify(f)));
+    final raw = classifier.classify(f);
+    final smoothed = smoother.add(raw);
+    _personSeen = f.hasPerson;
+    _rawPosture = raw.posture;
+    _posture = smoothed.posture;
+    if (raw.takbirRaise || smoothed.takbirRaise) _takbirSeen = true;
+    final events = machine.add(smoothed);
     for (final e in events) {
+      if (e is StateChanged && e.to == PrayerState.takbir) _takbirSeen = true;
       c.handle(e);
+      _noteAudioEvent(e, c);
       if (c.isOver) break;
     }
   }
 
+  void _noteAudioEvent(PrayerEvent e, SessionController c) {
+    final rakah = c.current.rakah;
+    final ignored = c.current.reciting ? '' : ', not played';
+    _lastAudioEvent = switch (e) {
+      StartRecitation(:final rakah) => "Start (rak'ah $rakah$ignored)",
+      PauseRecitation(:final rakah) => "Pause (rak'ah $rakah)",
+      ResumeRecitation(:final rakah) => "Resume (rak'ah $rakah)",
+      StopRecitation() => "Stop (rak'ah $rakah)",
+      _ => _lastAudioEvent,
+    };
+  }
+
   void _onStatus(SessionStatus s) {
+    if (s.audioProblem != null &&
+        s.audioProblem != _status.latest?.audioProblem) {
+      debugPrint('PoseSessionRunner: audio problem: ${s.audioProblem}');
+    }
     if (s.isOver) {
       unawaited(_finish(s));
     } else if (!_ending) {
@@ -300,7 +372,7 @@ class PoseSessionRunner implements SessionRunner {
   }
 
   /// Ends a session that never reached the controller.
-  Future<void> _finishWithout(Interruption i) async {
+  Future<void> _finishWithout(Interruption i, {String? audioProblem}) async {
     if (_ending) return;
     _ending = true;
     _status.add(
@@ -311,6 +383,7 @@ class PoseSessionRunner implements SessionRunner {
         interruption: i,
         reciting: false,
         paused: false,
+        audioProblem: audioProblem,
       ),
     );
     await _release();

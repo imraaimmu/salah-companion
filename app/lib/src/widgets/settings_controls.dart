@@ -412,6 +412,141 @@ class _AudioCheckPanelState extends State<AudioCheckPanel> {
   }
 }
 
+/// Settings, "Show tracking details during prayer (for testing)".
+class TrackingDetailsToggle extends StatelessWidget {
+  final SessionSettings settings;
+  final SettingsChanged onChanged;
+
+  const TrackingDetailsToggle({
+    super.key,
+    required this.settings,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    key: const Key('tracking-details'),
+    value: settings.showTrackingDetails,
+    title: const Text('Show tracking details during prayer (for testing)'),
+    subtitle: const Text(
+      'Small dim text at the bottom of the prayer screen: posture, prayer '
+      'state, whether the takbir was seen and the last audio event. Off '
+      'keeps the screen fully black.',
+    ),
+    onChanged: (v) => onChanged(settings.copyWith(showTrackingDetails: v)),
+  );
+}
+
+/// Settings, "Test sound": plays Al-Fatiha ayah 1 through the recitation
+/// player for a few seconds, and checks the media volume.
+class SoundTestPanel extends StatefulWidget {
+  final SoundTest soundTest;
+  final AudioCheck audioCheck;
+
+  const SoundTestPanel({
+    super.key,
+    required this.soundTest,
+    required this.audioCheck,
+  });
+
+  static const playing = 'Playing…';
+  static const heardTone = 'You should hear a tone (placeholder audio).';
+  static const heardRecitation = 'You should hear the start of Al-Fatiha.';
+  static const volumeZero =
+      'Media volume is at zero, so nothing can be heard. Turn it up.';
+
+  @override
+  State<SoundTestPanel> createState() => _SoundTestPanelState();
+}
+
+class _SoundTestPanelState extends State<SoundTestPanel> {
+  bool _playing = false;
+  String? _result;
+  bool _failed = false;
+  bool _volumeZero = false;
+
+  Future<void> _run() async {
+    if (_playing) return;
+    setState(() {
+      _playing = true;
+      _result = null;
+      _failed = false;
+    });
+    var volumeZero = false;
+    try {
+      volumeZero = !(await widget.audioCheck.check()).volumeAboveZero;
+    } catch (_) {
+      // The volume check is a hint only.
+    }
+    if (mounted) setState(() => _volumeZero = volumeZero);
+    String? problem;
+    try {
+      problem = await widget.soundTest.run();
+    } catch (e) {
+      problem = '$e';
+    }
+    if (!mounted) return;
+    setState(() {
+      _playing = false;
+      _failed = problem != null;
+      _result =
+          problem ??
+          (widget.soundTest.placeholder
+              ? SoundTestPanel.heardTone
+              : SoundTestPanel.heardRecitation);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final result = _result;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: Padding(
+            padding: const EdgeInsetsDirectional.only(start: 8),
+            child: TextButton.icon(
+              key: const Key('test-sound'),
+              onPressed: _playing ? null : _run,
+              icon: const Icon(Icons.play_circle_outline),
+              label: const Text('Test sound'),
+            ),
+          ),
+        ),
+        Semantics(
+          liveRegion: true,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (_playing)
+                const QuietNote(
+                  SoundTestPanel.playing,
+                  key: Key('test-sound-status'),
+                )
+              else if (result != null)
+                QuietNote(
+                  _failed ? 'No sound: $result' : result,
+                  key: const Key('test-sound-status'),
+                  icon: _failed
+                      ? Icons.error_outline
+                      : Icons.volume_up_outlined,
+                ),
+              if (_volumeZero)
+                const QuietNote(
+                  SoundTestPanel.volumeZero,
+                  key: Key('test-sound-volume'),
+                  icon: Icons.volume_off_outlined,
+                ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
 const doNotDisturbNote =
     'Tip: turn on Do Not Disturb before you pray. On Android choose '
     '"Priority only" and allow media, so the recitation still plays.';
